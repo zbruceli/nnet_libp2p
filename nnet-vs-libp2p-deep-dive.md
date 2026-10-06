@@ -32,7 +32,6 @@ I also benchmarked both stacks side by side from 16 to 256 nodes (§7.4). **For 
 | Overload handling | Bounded channels that **drop** when full | Flow-controlled streams plus a hierarchical **Resource Manager** |
 | Languages | Go | Go, Rust, JS/TS, Nim, Java/Kotlin, C++, Python, Zig, .NET… |
 | Main production user | NKN (tens of thousands of nodes) | IPFS, Ethereum consensus layer, Filecoin, Polkadot, Celestia, … |
-| Activity (Oct 2026) | Maintenance mode (last commit May 2025) | Very active (go-libp2p v0.50, GossipSub v1.3 / partial messages) |
 
 ---
 
@@ -590,7 +589,7 @@ info, _ := kad.FindPeer(ctx, targetPeerID)            // directory lookup
 s, _ := h.NewStream(ctx, info.ID, "/myapp/ping/1")    // direct, encrypted stream
 ```
 
-nnet's API is **message-oriented and topology-aware**: you think in keys and broadcasts. libp2p's is **stream-oriented and topology-agnostic**: you think in peers and protocols. libp2p's ecosystem is far larger (implementations in a dozen languages, interop testing, browser support, active spec work). nnet has one implementation, its README lists test cases as "coming soon", and it has been in maintenance mode since 2025.
+nnet's API is **message-oriented and topology-aware**: you think in keys and broadcasts. libp2p's is **stream-oriented and topology-agnostic**: you think in peers and protocols. libp2p's ecosystem is far larger (implementations in a dozen languages, interop testing, browser support, active spec work).
 
 ---
 
