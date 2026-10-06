@@ -1,5 +1,7 @@
 # Rings and Toolkits: A Technical Deep Dive into nnet, and How It Compares to libp2p
 
+![nnet's Chord ring with a spanning-tree broadcast beside a libp2p-style mesh of direct streams](images/00-hero.png)
+
 *How NKN's Chord-based overlay and Protocol Labs' modular networking stack take very different approaches to peer-to-peer networking: architecture, algorithms, performance and scalability.*
 
 ---

@@ -12,7 +12,7 @@ A comparison of [nnet](https://github.com/nknorg/nnet) (NKN's Chord-based overla
 Regenerate the figures:
 
 ```bash
-cd figure-src && python3 sim.py && python3 figs.py ../images
+cd figure-src && python3 sim.py && python3 figs.py ../images && python3 hero.py ../images
 ```
 
 Rerun the benchmark (about 90 minutes on a 14-core machine):
