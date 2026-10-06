@@ -1,0 +1,7 @@
+# compiled benchmark binaries (rebuild with: go build -tags nnet|libp2p)
+scalability-bench/bench-nnet
+scalability-bench/bench-libp2p
+scalability-bench/bench
+__pycache__/
+*.pyc
+.DS_Store
