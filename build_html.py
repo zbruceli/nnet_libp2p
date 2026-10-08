@@ -12,6 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "nnet-vs-libp2p-deep-dive.md")
 OUT = os.path.join(HERE, "index.html")
 REPO = "https://github.com/zbruceli/nnet_libp2p"
+SITE = "https://zbruceli.github.io/nnet_libp2p/"
 
 md_text = open(SRC, encoding="utf-8").read()
 
@@ -82,7 +83,9 @@ page = f"""<!doctype html>
 <meta property="og:title" content="{html.escape(title)}">
 <meta property="og:description" content="{html.escape(subtitle)}">
 <meta property="og:type" content="article">
-<meta property="og:image" content="{hero_src}">
+<meta property="og:image" content="{SITE}{hero_src}">
+<meta property="og:url" content="{SITE}">
+<link rel="canonical" href="{SITE}">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
