@@ -1,0 +1,1345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rings and Toolkits: A Technical Deep Dive into nnet, and How It Compares to libp2p</title>
+<meta name="description" content="How NKN&#x27;s Chord-based overlay and Protocol Labs&#x27; modular networking stack take very different approaches to peer-to-peer networking: architecture, algorithms, performance and scalability.">
+<meta property="og:title" content="Rings and Toolkits: A Technical Deep Dive into nnet, and How It Compares to libp2p">
+<meta property="og:description" content="How NKN&#x27;s Chord-based overlay and Protocol Labs&#x27; modular networking stack take very different approaches to peer-to-peer networking: architecture, algorithms, performance and scalability.">
+<meta property="og:type" content="article">
+<meta property="og:image" content="images/00-hero.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fcfcfb; --surface: #f3f2ee; --surface-2: #ebe9e3; --border: #dedcd5;
+  --text: #1b1b19; --text-2: #52514e; --text-3: #7a7974;
+  --accent: #2a78d6; --accent-2: #eb6834; --link: #1c5cab; --mark: #fff3c4;
+  --code-bg: #f5f4f0; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1218; --surface: #171b23; --surface-2: #1f2430; --border: #2b3140;
+    --text: #e9e8e4; --text-2: #b4b7bf; --text-3: #868a94;
+    --accent: #5598e7; --accent-2: #f08a5d; --link: #86b6ef; --mark: #3a3420;
+    --code-bg: #151922; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1218; --surface: #171b23; --surface-2: #1f2430; --border: #2b3140;
+  --text: #e9e8e4; --text-2: #b4b7bf; --text-3: #868a94;
+  --accent: #5598e7; --accent-2: #f08a5d; --link: #86b6ef; --mark: #3a3420;
+  --code-bg: #151922; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 18px/1.7 var(--serif); }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+
+/* progress bar */
+#progress { position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 50; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transform-origin: 0 50%; transform: scaleX(0); }
+
+/* top bar */
+.topbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--border); font: 500 14px/1.2 var(--sans); }
+.topbar .brand { color: var(--text); text-decoration: none; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar .spacer { flex: 1; }
+.topbar button, .topbar a.btn { font: inherit; color: var(--text-2); background: transparent; border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.topbar button:hover, .topbar a.btn:hover { color: var(--text); background: var(--surface); }
+#toc-toggle { display: none; }
+
+/* hero */
+.hero { background: #0b1220; }
+.hero img { display: block; width: 100%; max-width: 1600px; margin: 0 auto; height: auto; aspect-ratio: 1600 / 840; }
+header.intro { max-width: 760px; margin: 48px auto 8px; padding: 0 20px; }
+header.intro h1 { font: 800 clamp(30px, 5vw, 46px)/1.12 var(--sans); letter-spacing: -0.02em; margin: 0 0 16px; }
+header.intro .dek { font: 400 21px/1.5 var(--serif); color: var(--text-2); margin: 0 0 20px; font-style: italic; }
+header.intro .meta { font: 500 14px/1.4 var(--sans); color: var(--text-3); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+
+/* layout */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 760px) minmax(0, 1fr); gap: 0 48px; padding: 0 20px; }
+main { grid-column: 2; min-width: 0; }
+nav.toc { grid-column: 1; justify-self: end; width: 100%; max-width: 280px; }
+nav.toc .inner { position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow: auto; padding: 8px 4px 24px 0; font: 14px/1.45 var(--sans); }
+nav.toc .label { font: 700 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin: 8px 0 12px 12px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; }
+nav.toc ol.sub { display: none; margin: 2px 0 6px 12px; border-left: 1px solid var(--border); }
+nav.toc li.open > ol.sub { display: block; }
+nav.toc a { display: block; padding: 5px 12px; color: var(--text-2); text-decoration: none; border-radius: 6px; }
+nav.toc ol.sub a { font-size: 13px; padding: 3px 12px; color: var(--text-3); }
+nav.toc a:hover { color: var(--text); background: var(--surface); }
+nav.toc a.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+
+/* content */
+main > *:first-child { margin-top: 24px; }
+main h2, main h3, main h4 { font-family: var(--sans); letter-spacing: -0.01em; line-height: 1.25; position: relative; }
+main h2 { font-size: 30px; font-weight: 800; margin: 72px 0 16px; padding-top: 8px; }
+main h3 { font-size: 22px; font-weight: 700; margin: 44px 0 12px; }
+main h4 { font-size: 18px; font-weight: 700; margin: 32px 0 8px; }
+main .headerlink { position: absolute; left: -1.1em; padding-right: .3em; color: var(--text-3); text-decoration: none; opacity: 0; font-weight: 400; }
+main h2:hover .headerlink, main h3:hover .headerlink, main h4:hover .headerlink { opacity: 1; }
+main p, main li { hyphens: auto; }
+main ul, main ol { padding-left: 1.4em; }
+main li { margin: .35em 0; }
+main strong { font-weight: 600; }
+main hr { border: 0; height: 1px; background: var(--border); margin: 56px 0; }
+main blockquote { margin: 24px 0; padding: 4px 20px; border-left: 3px solid var(--accent); color: var(--text-2); }
+code { font: 0.84em/1.5 var(--mono); background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: .1em .35em; }
+.hl { margin: 24px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg) !important; }
+.hl pre { margin: 0; padding: 16px 18px; overflow: auto; font: 14px/1.6 var(--mono); }
+.hl code { background: none; border: 0; padding: 0; font-size: inherit; }
+pre { font: 14px/1.6 var(--mono); overflow: auto; }
+
+/* figures */
+figure { margin: 36px 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: var(--shadow); background: #fcfcfb; }
+figcaption { margin-top: 10px; font: 14px/1.5 var(--sans); color: var(--text-2); }
+@media (min-width: 1440px) { figure { margin-left: -48px; margin-right: -48px; } }
+
+/* tables */
+.table-wrap { overflow-x: auto; margin: 28px 0; border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: max-content; min-width: 100%; max-width: 1100px; font: 14.5px/1.45 var(--sans); }
+td:first-child { min-width: 170px; }
+td { max-width: 340px; }
+th, td { padding: 10px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+thead th { background: var(--surface); font-weight: 600; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+td code, th code { font-size: .85em; }
+
+/* TL;DR emphasis */
+#tldr + * , #tldr ~ ul:first-of-type { }
+.callout { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px 24px; margin: 24px 0; }
+
+footer { max-width: 760px; margin: 80px auto 48px; padding: 24px 20px 0; border-top: 1px solid var(--border);
+  font: 14px/1.6 var(--sans); color: var(--text-3); }
+
+/* responsive */
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 760px); justify-content: center; }
+  main { grid-column: 1; }
+  #toc-toggle { display: inline-block; }
+  nav.toc { position: fixed; inset: 49px auto 0 0; z-index: 45; width: min(320px, 86vw); max-width: none; background: var(--bg);
+    border-right: 1px solid var(--border); transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  nav.toc.open { transform: none; }
+  nav.toc .inner { position: static; max-height: 100%; height: 100%; padding: 16px 8px 40px; }
+  nav.toc ol.sub { display: block; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  main h2 { font-size: 25px; margin-top: 56px; }
+  main h3 { font-size: 20px; }
+  header.intro { margin-top: 32px; }
+  header.intro .dek { font-size: 18px; }
+  .topbar .brand { display: none; }
+  .topbar .lbl { display: none; }
+  .topbar { padding: 8px 14px; }
+  main .headerlink { display: none; }
+}
+@media print {
+  .topbar, nav.toc, #progress { display: none; }
+  .layout { display: block; }
+  body { font-size: 11pt; background: #fff; color: #000; }
+  figure { break-inside: avoid; }
+}
+pre { line-height: 125%; }
+td.linenos .normal { color: #666666; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: #666666; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.hl .hll { background-color: #ffffcc }
+.hl { background: #f0f0f0; }
+.hl .c { color: #60A0B0; font-style: italic } /* Comment */
+.hl .err { border: 1px solid #F00 } /* Error */
+.hl .k { color: #007020; font-weight: bold } /* Keyword */
+.hl .o { color: #666 } /* Operator */
+.hl .ch { color: #60A0B0; font-style: italic } /* Comment.Hashbang */
+.hl .cm { color: #60A0B0; font-style: italic } /* Comment.Multiline */
+.hl .cp { color: #007020 } /* Comment.Preproc */
+.hl .cpf { color: #60A0B0; font-style: italic } /* Comment.PreprocFile */
+.hl .c1 { color: #60A0B0; font-style: italic } /* Comment.Single */
+.hl .cs { color: #60A0B0; background-color: #FFF0F0 } /* Comment.Special */
+.hl .gd { color: #A00000 } /* Generic.Deleted */
+.hl .ge { font-style: italic } /* Generic.Emph */
+.hl .ges { font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.hl .gr { color: #F00 } /* Generic.Error */
+.hl .gh { color: #000080; font-weight: bold } /* Generic.Heading */
+.hl .gi { color: #00A000 } /* Generic.Inserted */
+.hl .go { color: #888 } /* Generic.Output */
+.hl .gp { color: #C65D09; font-weight: bold } /* Generic.Prompt */
+.hl .gs { font-weight: bold } /* Generic.Strong */
+.hl .gu { color: #800080; font-weight: bold } /* Generic.Subheading */
+.hl .gt { color: #04D } /* Generic.Traceback */
+.hl .kc { color: #007020; font-weight: bold } /* Keyword.Constant */
+.hl .kd { color: #007020; font-weight: bold } /* Keyword.Declaration */
+.hl .kn { color: #007020; font-weight: bold } /* Keyword.Namespace */
+.hl .kp { color: #007020 } /* Keyword.Pseudo */
+.hl .kr { color: #007020; font-weight: bold } /* Keyword.Reserved */
+.hl .kt { color: #902000 } /* Keyword.Type */
+.hl .m { color: #40A070 } /* Literal.Number */
+.hl .s { color: #4070A0 } /* Literal.String */
+.hl .na { color: #4070A0 } /* Name.Attribute */
+.hl .nb { color: #007020 } /* Name.Builtin */
+.hl .nc { color: #0E84B5; font-weight: bold } /* Name.Class */
+.hl .no { color: #60ADD5 } /* Name.Constant */
+.hl .nd { color: #555; font-weight: bold } /* Name.Decorator */
+.hl .ni { color: #D55537; font-weight: bold } /* Name.Entity */
+.hl .ne { color: #007020 } /* Name.Exception */
+.hl .nf { color: #06287E } /* Name.Function */
+.hl .nl { color: #002070; font-weight: bold } /* Name.Label */
+.hl .nn { color: #0E84B5; font-weight: bold } /* Name.Namespace */
+.hl .nt { color: #062873; font-weight: bold } /* Name.Tag */
+.hl .nv { color: #BB60D5 } /* Name.Variable */
+.hl .ow { color: #007020; font-weight: bold } /* Operator.Word */
+.hl .w { color: #BBB } /* Text.Whitespace */
+.hl .mb { color: #40A070 } /* Literal.Number.Bin */
+.hl .mf { color: #40A070 } /* Literal.Number.Float */
+.hl .mh { color: #40A070 } /* Literal.Number.Hex */
+.hl .mi { color: #40A070 } /* Literal.Number.Integer */
+.hl .mo { color: #40A070 } /* Literal.Number.Oct */
+.hl .sa { color: #4070A0 } /* Literal.String.Affix */
+.hl .sb { color: #4070A0 } /* Literal.String.Backtick */
+.hl .sc { color: #4070A0 } /* Literal.String.Char */
+.hl .dl { color: #4070A0 } /* Literal.String.Delimiter */
+.hl .sd { color: #4070A0; font-style: italic } /* Literal.String.Doc */
+.hl .s2 { color: #4070A0 } /* Literal.String.Double */
+.hl .se { color: #4070A0; font-weight: bold } /* Literal.String.Escape */
+.hl .sh { color: #4070A0 } /* Literal.String.Heredoc */
+.hl .si { color: #70A0D0; font-style: italic } /* Literal.String.Interpol */
+.hl .sx { color: #C65D09 } /* Literal.String.Other */
+.hl .sr { color: #235388 } /* Literal.String.Regex */
+.hl .s1 { color: #4070A0 } /* Literal.String.Single */
+.hl .ss { color: #517918 } /* Literal.String.Symbol */
+.hl .bp { color: #007020 } /* Name.Builtin.Pseudo */
+.hl .fm { color: #06287E } /* Name.Function.Magic */
+.hl .vc { color: #BB60D5 } /* Name.Variable.Class */
+.hl .vg { color: #BB60D5 } /* Name.Variable.Global */
+.hl .vi { color: #BB60D5 } /* Name.Variable.Instance */
+.hl .vm { color: #BB60D5 } /* Name.Variable.Magic */
+.hl .il { color: #40A070 } /* Literal.Number.Integer.Long */
+@media (prefers-color-scheme: dark) {
+pre { line-height: 125%; }
+td.linenos .normal { color: #6e7681; background-color: #0d1117; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: #6e7681; background-color: #0d1117; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #e6edf3; background-color: #6e7681; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #e6edf3; background-color: #6e7681; padding-left: 5px; padding-right: 5px; }
+:root:not([data-theme=light]) .hl .hll { background-color: #6e7681 }
+:root:not([data-theme=light]) .hl { background: #0d1117; color: #E6EDF3 }
+:root:not([data-theme=light]) .hl .c { color: #8B949E; font-style: italic } /* Comment */
+:root:not([data-theme=light]) .hl .err { color: #F85149 } /* Error */
+:root:not([data-theme=light]) .hl .esc { color: #E6EDF3 } /* Escape */
+:root:not([data-theme=light]) .hl .g { color: #E6EDF3 } /* Generic */
+:root:not([data-theme=light]) .hl .k { color: #FF7B72 } /* Keyword */
+:root:not([data-theme=light]) .hl .l { color: #A5D6FF } /* Literal */
+:root:not([data-theme=light]) .hl .n { color: #E6EDF3 } /* Name */
+:root:not([data-theme=light]) .hl .o { color: #FF7B72; font-weight: bold } /* Operator */
+:root:not([data-theme=light]) .hl .x { color: #E6EDF3 } /* Other */
+:root:not([data-theme=light]) .hl .p { color: #E6EDF3 } /* Punctuation */
+:root:not([data-theme=light]) .hl .ch { color: #8B949E; font-style: italic } /* Comment.Hashbang */
+:root:not([data-theme=light]) .hl .cm { color: #8B949E; font-style: italic } /* Comment.Multiline */
+:root:not([data-theme=light]) .hl .cp { color: #8B949E; font-weight: bold; font-style: italic } /* Comment.Preproc */
+:root:not([data-theme=light]) .hl .cpf { color: #8B949E; font-style: italic } /* Comment.PreprocFile */
+:root:not([data-theme=light]) .hl .c1 { color: #8B949E; font-style: italic } /* Comment.Single */
+:root:not([data-theme=light]) .hl .cs { color: #8B949E; font-weight: bold; font-style: italic } /* Comment.Special */
+:root:not([data-theme=light]) .hl .gd { color: #FFA198; background-color: #490202 } /* Generic.Deleted */
+:root:not([data-theme=light]) .hl .ge { color: #E6EDF3; font-style: italic } /* Generic.Emph */
+:root:not([data-theme=light]) .hl .ges { color: #E6EDF3; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+:root:not([data-theme=light]) .hl .gr { color: #FFA198 } /* Generic.Error */
+:root:not([data-theme=light]) .hl .gh { color: #79C0FF; font-weight: bold } /* Generic.Heading */
+:root:not([data-theme=light]) .hl .gi { color: #56D364; background-color: #0F5323 } /* Generic.Inserted */
+:root:not([data-theme=light]) .hl .go { color: #8B949E } /* Generic.Output */
+:root:not([data-theme=light]) .hl .gp { color: #8B949E } /* Generic.Prompt */
+:root:not([data-theme=light]) .hl .gs { color: #E6EDF3; font-weight: bold } /* Generic.Strong */
+:root:not([data-theme=light]) .hl .gu { color: #79C0FF } /* Generic.Subheading */
+:root:not([data-theme=light]) .hl .gt { color: #FF7B72 } /* Generic.Traceback */
+:root:not([data-theme=light]) .hl .g-Underline { color: #E6EDF3; text-decoration: underline } /* Generic.Underline */
+:root:not([data-theme=light]) .hl .kc { color: #79C0FF } /* Keyword.Constant */
+:root:not([data-theme=light]) .hl .kd { color: #FF7B72 } /* Keyword.Declaration */
+:root:not([data-theme=light]) .hl .kn { color: #FF7B72 } /* Keyword.Namespace */
+:root:not([data-theme=light]) .hl .kp { color: #79C0FF } /* Keyword.Pseudo */
+:root:not([data-theme=light]) .hl .kr { color: #FF7B72 } /* Keyword.Reserved */
+:root:not([data-theme=light]) .hl .kt { color: #FF7B72 } /* Keyword.Type */
+:root:not([data-theme=light]) .hl .ld { color: #79C0FF } /* Literal.Date */
+:root:not([data-theme=light]) .hl .m { color: #A5D6FF } /* Literal.Number */
+:root:not([data-theme=light]) .hl .s { color: #A5D6FF } /* Literal.String */
+:root:not([data-theme=light]) .hl .na { color: #E6EDF3 } /* Name.Attribute */
+:root:not([data-theme=light]) .hl .nb { color: #E6EDF3 } /* Name.Builtin */
+:root:not([data-theme=light]) .hl .nc { color: #F0883E; font-weight: bold } /* Name.Class */
+:root:not([data-theme=light]) .hl .no { color: #79C0FF; font-weight: bold } /* Name.Constant */
+:root:not([data-theme=light]) .hl .nd { color: #D2A8FF; font-weight: bold } /* Name.Decorator */
+:root:not([data-theme=light]) .hl .ni { color: #FFA657 } /* Name.Entity */
+:root:not([data-theme=light]) .hl .ne { color: #F0883E; font-weight: bold } /* Name.Exception */
+:root:not([data-theme=light]) .hl .nf { color: #D2A8FF; font-weight: bold } /* Name.Function */
+:root:not([data-theme=light]) .hl .nl { color: #79C0FF; font-weight: bold } /* Name.Label */
+:root:not([data-theme=light]) .hl .nn { color: #FF7B72 } /* Name.Namespace */
+:root:not([data-theme=light]) .hl .nx { color: #E6EDF3 } /* Name.Other */
+:root:not([data-theme=light]) .hl .py { color: #79C0FF } /* Name.Property */
+:root:not([data-theme=light]) .hl .nt { color: #7EE787 } /* Name.Tag */
+:root:not([data-theme=light]) .hl .nv { color: #79C0FF } /* Name.Variable */
+:root:not([data-theme=light]) .hl .ow { color: #FF7B72; font-weight: bold } /* Operator.Word */
+:root:not([data-theme=light]) .hl .pm { color: #E6EDF3 } /* Punctuation.Marker */
+:root:not([data-theme=light]) .hl .w { color: #6E7681 } /* Text.Whitespace */
+:root:not([data-theme=light]) .hl .mb { color: #A5D6FF } /* Literal.Number.Bin */
+:root:not([data-theme=light]) .hl .mf { color: #A5D6FF } /* Literal.Number.Float */
+:root:not([data-theme=light]) .hl .mh { color: #A5D6FF } /* Literal.Number.Hex */
+:root:not([data-theme=light]) .hl .mi { color: #A5D6FF } /* Literal.Number.Integer */
+:root:not([data-theme=light]) .hl .mo { color: #A5D6FF } /* Literal.Number.Oct */
+:root:not([data-theme=light]) .hl .sa { color: #79C0FF } /* Literal.String.Affix */
+:root:not([data-theme=light]) .hl .sb { color: #A5D6FF } /* Literal.String.Backtick */
+:root:not([data-theme=light]) .hl .sc { color: #A5D6FF } /* Literal.String.Char */
+:root:not([data-theme=light]) .hl .dl { color: #79C0FF } /* Literal.String.Delimiter */
+:root:not([data-theme=light]) .hl .sd { color: #A5D6FF } /* Literal.String.Doc */
+:root:not([data-theme=light]) .hl .s2 { color: #A5D6FF } /* Literal.String.Double */
+:root:not([data-theme=light]) .hl .se { color: #79C0FF } /* Literal.String.Escape */
+:root:not([data-theme=light]) .hl .sh { color: #79C0FF } /* Literal.String.Heredoc */
+:root:not([data-theme=light]) .hl .si { color: #A5D6FF } /* Literal.String.Interpol */
+:root:not([data-theme=light]) .hl .sx { color: #A5D6FF } /* Literal.String.Other */
+:root:not([data-theme=light]) .hl .sr { color: #79C0FF } /* Literal.String.Regex */
+:root:not([data-theme=light]) .hl .s1 { color: #A5D6FF } /* Literal.String.Single */
+:root:not([data-theme=light]) .hl .ss { color: #A5D6FF } /* Literal.String.Symbol */
+:root:not([data-theme=light]) .hl .bp { color: #E6EDF3 } /* Name.Builtin.Pseudo */
+:root:not([data-theme=light]) .hl .fm { color: #D2A8FF; font-weight: bold } /* Name.Function.Magic */
+:root:not([data-theme=light]) .hl .vc { color: #79C0FF } /* Name.Variable.Class */
+:root:not([data-theme=light]) .hl .vg { color: #79C0FF } /* Name.Variable.Global */
+:root:not([data-theme=light]) .hl .vi { color: #79C0FF } /* Name.Variable.Instance */
+:root:not([data-theme=light]) .hl .vm { color: #79C0FF } /* Name.Variable.Magic */
+:root:not([data-theme=light]) .hl .il { color: #A5D6FF } /* Literal.Number.Integer.Long */
+}
+pre { line-height: 125%; }
+td.linenos .normal { color: #6e7681; background-color: #0d1117; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: #6e7681; background-color: #0d1117; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #e6edf3; background-color: #6e7681; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #e6edf3; background-color: #6e7681; padding-left: 5px; padding-right: 5px; }
+:root[data-theme=dark] .hl .hll { background-color: #6e7681 }
+:root[data-theme=dark] .hl { background: #0d1117; color: #E6EDF3 }
+:root[data-theme=dark] .hl .c { color: #8B949E; font-style: italic } /* Comment */
+:root[data-theme=dark] .hl .err { color: #F85149 } /* Error */
+:root[data-theme=dark] .hl .esc { color: #E6EDF3 } /* Escape */
+:root[data-theme=dark] .hl .g { color: #E6EDF3 } /* Generic */
+:root[data-theme=dark] .hl .k { color: #FF7B72 } /* Keyword */
+:root[data-theme=dark] .hl .l { color: #A5D6FF } /* Literal */
+:root[data-theme=dark] .hl .n { color: #E6EDF3 } /* Name */
+:root[data-theme=dark] .hl .o { color: #FF7B72; font-weight: bold } /* Operator */
+:root[data-theme=dark] .hl .x { color: #E6EDF3 } /* Other */
+:root[data-theme=dark] .hl .p { color: #E6EDF3 } /* Punctuation */
+:root[data-theme=dark] .hl .ch { color: #8B949E; font-style: italic } /* Comment.Hashbang */
+:root[data-theme=dark] .hl .cm { color: #8B949E; font-style: italic } /* Comment.Multiline */
+:root[data-theme=dark] .hl .cp { color: #8B949E; font-weight: bold; font-style: italic } /* Comment.Preproc */
+:root[data-theme=dark] .hl .cpf { color: #8B949E; font-style: italic } /* Comment.PreprocFile */
+:root[data-theme=dark] .hl .c1 { color: #8B949E; font-style: italic } /* Comment.Single */
+:root[data-theme=dark] .hl .cs { color: #8B949E; font-weight: bold; font-style: italic } /* Comment.Special */
+:root[data-theme=dark] .hl .gd { color: #FFA198; background-color: #490202 } /* Generic.Deleted */
+:root[data-theme=dark] .hl .ge { color: #E6EDF3; font-style: italic } /* Generic.Emph */
+:root[data-theme=dark] .hl .ges { color: #E6EDF3; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+:root[data-theme=dark] .hl .gr { color: #FFA198 } /* Generic.Error */
+:root[data-theme=dark] .hl .gh { color: #79C0FF; font-weight: bold } /* Generic.Heading */
+:root[data-theme=dark] .hl .gi { color: #56D364; background-color: #0F5323 } /* Generic.Inserted */
+:root[data-theme=dark] .hl .go { color: #8B949E } /* Generic.Output */
+:root[data-theme=dark] .hl .gp { color: #8B949E } /* Generic.Prompt */
+:root[data-theme=dark] .hl .gs { color: #E6EDF3; font-weight: bold } /* Generic.Strong */
+:root[data-theme=dark] .hl .gu { color: #79C0FF } /* Generic.Subheading */
+:root[data-theme=dark] .hl .gt { color: #FF7B72 } /* Generic.Traceback */
+:root[data-theme=dark] .hl .g-Underline { color: #E6EDF3; text-decoration: underline } /* Generic.Underline */
+:root[data-theme=dark] .hl .kc { color: #79C0FF } /* Keyword.Constant */
+:root[data-theme=dark] .hl .kd { color: #FF7B72 } /* Keyword.Declaration */
+:root[data-theme=dark] .hl .kn { color: #FF7B72 } /* Keyword.Namespace */
+:root[data-theme=dark] .hl .kp { color: #79C0FF } /* Keyword.Pseudo */
+:root[data-theme=dark] .hl .kr { color: #FF7B72 } /* Keyword.Reserved */
+:root[data-theme=dark] .hl .kt { color: #FF7B72 } /* Keyword.Type */
+:root[data-theme=dark] .hl .ld { color: #79C0FF } /* Literal.Date */
+:root[data-theme=dark] .hl .m { color: #A5D6FF } /* Literal.Number */
+:root[data-theme=dark] .hl .s { color: #A5D6FF } /* Literal.String */
+:root[data-theme=dark] .hl .na { color: #E6EDF3 } /* Name.Attribute */
+:root[data-theme=dark] .hl .nb { color: #E6EDF3 } /* Name.Builtin */
+:root[data-theme=dark] .hl .nc { color: #F0883E; font-weight: bold } /* Name.Class */
+:root[data-theme=dark] .hl .no { color: #79C0FF; font-weight: bold } /* Name.Constant */
+:root[data-theme=dark] .hl .nd { color: #D2A8FF; font-weight: bold } /* Name.Decorator */
+:root[data-theme=dark] .hl .ni { color: #FFA657 } /* Name.Entity */
+:root[data-theme=dark] .hl .ne { color: #F0883E; font-weight: bold } /* Name.Exception */
+:root[data-theme=dark] .hl .nf { color: #D2A8FF; font-weight: bold } /* Name.Function */
+:root[data-theme=dark] .hl .nl { color: #79C0FF; font-weight: bold } /* Name.Label */
+:root[data-theme=dark] .hl .nn { color: #FF7B72 } /* Name.Namespace */
+:root[data-theme=dark] .hl .nx { color: #E6EDF3 } /* Name.Other */
+:root[data-theme=dark] .hl .py { color: #79C0FF } /* Name.Property */
+:root[data-theme=dark] .hl .nt { color: #7EE787 } /* Name.Tag */
+:root[data-theme=dark] .hl .nv { color: #79C0FF } /* Name.Variable */
+:root[data-theme=dark] .hl .ow { color: #FF7B72; font-weight: bold } /* Operator.Word */
+:root[data-theme=dark] .hl .pm { color: #E6EDF3 } /* Punctuation.Marker */
+:root[data-theme=dark] .hl .w { color: #6E7681 } /* Text.Whitespace */
+:root[data-theme=dark] .hl .mb { color: #A5D6FF } /* Literal.Number.Bin */
+:root[data-theme=dark] .hl .mf { color: #A5D6FF } /* Literal.Number.Float */
+:root[data-theme=dark] .hl .mh { color: #A5D6FF } /* Literal.Number.Hex */
+:root[data-theme=dark] .hl .mi { color: #A5D6FF } /* Literal.Number.Integer */
+:root[data-theme=dark] .hl .mo { color: #A5D6FF } /* Literal.Number.Oct */
+:root[data-theme=dark] .hl .sa { color: #79C0FF } /* Literal.String.Affix */
+:root[data-theme=dark] .hl .sb { color: #A5D6FF } /* Literal.String.Backtick */
+:root[data-theme=dark] .hl .sc { color: #A5D6FF } /* Literal.String.Char */
+:root[data-theme=dark] .hl .dl { color: #79C0FF } /* Literal.String.Delimiter */
+:root[data-theme=dark] .hl .sd { color: #A5D6FF } /* Literal.String.Doc */
+:root[data-theme=dark] .hl .s2 { color: #A5D6FF } /* Literal.String.Double */
+:root[data-theme=dark] .hl .se { color: #79C0FF } /* Literal.String.Escape */
+:root[data-theme=dark] .hl .sh { color: #79C0FF } /* Literal.String.Heredoc */
+:root[data-theme=dark] .hl .si { color: #A5D6FF } /* Literal.String.Interpol */
+:root[data-theme=dark] .hl .sx { color: #A5D6FF } /* Literal.String.Other */
+:root[data-theme=dark] .hl .sr { color: #79C0FF } /* Literal.String.Regex */
+:root[data-theme=dark] .hl .s1 { color: #A5D6FF } /* Literal.String.Single */
+:root[data-theme=dark] .hl .ss { color: #A5D6FF } /* Literal.String.Symbol */
+:root[data-theme=dark] .hl .bp { color: #E6EDF3 } /* Name.Builtin.Pseudo */
+:root[data-theme=dark] .hl .fm { color: #D2A8FF; font-weight: bold } /* Name.Function.Magic */
+:root[data-theme=dark] .hl .vc { color: #79C0FF } /* Name.Variable.Class */
+:root[data-theme=dark] .hl .vg { color: #79C0FF } /* Name.Variable.Global */
+:root[data-theme=dark] .hl .vi { color: #79C0FF } /* Name.Variable.Instance */
+:root[data-theme=dark] .hl .vm { color: #79C0FF } /* Name.Variable.Magic */
+:root[data-theme=dark] .hl .il { color: #A5D6FF } /* Literal.Number.Integer.Long */
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="topbar">
+  <button id="toc-toggle" aria-label="Toggle contents" aria-expanded="false">☰<span class="lbl"> Contents</span></button>
+  <a class="brand" href="#top">Rings and Toolkits</a>
+  <span class="spacer"></span>
+  <button id="theme" aria-label="Toggle dark mode">◐<span class="lbl"> Theme</span></button>
+  <a class="btn" href="https://github.com/zbruceli/nnet_libp2p" target="_blank" rel="noopener">GitHub<span class="lbl"> ↗</span></a>
+</div>
+<div class="hero" id="top"><img src="images/00-hero.png" alt="nnet&#x27;s Chord ring with a spanning-tree broadcast beside a libp2p-style mesh of direct streams" width="1600" height="840"></div>
+<header class="intro">
+  <h1>Rings and Toolkits: A Technical Deep Dive into nnet, and How It Compares to libp2p</h1>
+  <p class="dek">How NKN&#x27;s Chord-based overlay and Protocol Labs&#x27; modular networking stack take very different approaches to peer-to-peer networking: architecture, algorithms, performance and scalability.</p>
+  <div class="meta"><span>≈ 39 min read</span><span>19 figures</span>
+    <span>Code, data &amp; benchmark: <a href="https://github.com/zbruceli/nnet_libp2p" target="_blank" rel="noopener">github.com/zbruceli/nnet_libp2p</a></span></div>
+</header>
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="Contents"><div class="inner"><div class="label">Contents</div><ol><li><a href="#tldr">TL;DR</a></li><li><a href="#1-two-philosophies">1. Two philosophies</a></li><li><a href="#2-nnet-architecture">2. nnet architecture</a><ol class="sub"><li><a href="#21-layered-design">2.1 Layered design</a></li><li><a href="#22-identity-and-addressing">2.2 Identity and addressing</a></li><li><a href="#23-the-wire-protocol">2.3 The wire protocol</a></li><li><a href="#24-the-per-peer-io-engine">2.4 The per-peer I/O engine</a></li><li><a href="#25-sync-messaging-without-threads">2.5 Sync messaging without threads</a></li><li><a href="#26-middleware-as-the-extension-mechanism">2.6 Middleware as the extension mechanism</a></li></ol></li><li><a href="#3-nnets-core-algorithms">3. nnet's core algorithms</a><ol class="sub"><li><a href="#31-an-improved-chord-neighbor-lists-instead-of-neighbor-pointers">3.1 An "improved Chord": neighbor lists instead of neighbor pointers</a></li><li><a href="#32-join-and-stabilization">3.2 Join and stabilization</a></li><li><a href="#33-relay-routing-with-proximity-awareness">3.3 Relay routing with proximity awareness</a></li><li><a href="#34-broadcast-i-push-flooding">3.4 Broadcast I: push (flooding)</a></li><li><a href="#35-broadcast-ii-the-chord-spanning-tree">3.5 Broadcast II: the Chord spanning tree</a></li></ol></li><li><a href="#4-libp2p-architecture">4. libp2p architecture</a><ol class="sub"><li><a href="#41-the-building-blocks">4.1 The building blocks</a></li><li><a href="#42-identity-peerid">4.2 Identity: PeerID</a></li><li><a href="#43-multiaddr-self-describing-composable-addresses">4.3 Multiaddr: self-describing, composable addresses</a></li><li><a href="#44-the-connection-upgrade-pipeline">4.4 The connection upgrade pipeline</a></li><li><a href="#45-nat-traversal-as-a-first-class-stack">4.5 NAT traversal as a first-class stack</a></li><li><a href="#46-resource-management">4.6 Resource management</a></li></ol></li><li><a href="#5-libp2ps-core-algorithms">5. libp2p's core algorithms</a><ol class="sub"><li><a href="#51-kademlia-dht">5.1 Kademlia DHT</a></li><li><a href="#52-gossipsub">5.2 GossipSub</a></li><li><a href="#53-gossipsub-vs-nnets-broadcasts">5.3 GossipSub vs. nnet's broadcasts</a></li></ol></li><li><a href="#6-performance">6. Performance</a><ol class="sub"><li><a href="#61-raw-messaging-throughput">6.1 Raw messaging throughput</a></li><li><a href="#62-latency">6.2 Latency</a></li><li><a href="#63-who-pays-the-bandwidth">6.3 Who pays the bandwidth?</a></li></ol></li><li><a href="#7-scalability">7. Scalability</a><ol class="sub"><li><a href="#71-state-and-maintenance">7.1 State and maintenance</a></li><li><a href="#72-production-evidence">7.2 Production evidence</a></li><li><a href="#73-concurrency-model-and-the-scaling-ceiling">7.3 Concurrency model and the scaling ceiling</a></li><li><a href="#74-measured-an-apples-to-apples-scalability-benchmark">7.4 Measured: an apples-to-apples scalability benchmark</a></li></ol></li><li><a href="#8-security-posture">8. Security posture</a></li><li><a href="#9-developer-experience">9. Developer experience</a></li><li><a href="#10-which-one-should-you-use">10. Which one should you use?</a></li><li><a href="#appendix-a-reproducing-the-measurements">Appendix A: Reproducing the measurements</a><ol class="sub"><li><a href="#scalability-benchmark">Scalability benchmark</a></li><li><a href="#figures-and-simulation">Figures and simulation</a></li></ol></li><li><a href="#appendix-b-sources">Appendix B: Sources</a></li></ol></div></nav>
+  <main id="content">
+<hr />
+<h2 id="tldr">TL;DR<a class="headerlink" href="#tldr" title="Link to this section">#</a></h2>
+<p><strong>nnet</strong> (<a target="_blank" rel="noopener" href="https://github.com/nknorg/nnet">github.com/nknorg/nnet</a>) and <strong>libp2p</strong> (<a target="_blank" rel="noopener" href="https://libp2p.io">libp2p.io</a>) both get called "p2p network stacks", but they solve different problems.</p>
+<ul>
+<li><strong>nnet is an overlay network.</strong> Every node joins one structured topology, an enhanced <strong>Chord ring</strong>, and from then on the network itself delivers messages. You hand nnet some bytes and a 256-bit key, and it forwards them hop by hop through the overlay to whichever node owns that key. It also has a <strong>spanning-tree broadcast</strong> that delivers a message to every node using about one transmission per node. The whole core is roughly 5,300 lines of Go.</li>
+<li><strong>libp2p is a connectivity toolkit.</strong> Its job is to let any peer open an <strong>authenticated, encrypted, multiplexed stream</strong> to any other peer, over any transport (TCP, QUIC, WebSocket, WebTransport, WebRTC), even through NATs. Overlays such as the <strong>Kademlia DHT</strong> and <strong>GossipSub</strong> are separate modules built on top. They help you <em>find</em> peers or <em>spread</em> messages, but point-to-point traffic normally runs over a direct connection rather than being relayed through the overlay.</li>
+</ul>
+<p>So nnet makes <strong>"route this message through the network"</strong> its core operation, while libp2p makes <strong>"open a secure stream to that peer"</strong> its core operation. Almost every other difference covered here comes from that one choice.</p>
+<p>I also benchmarked both stacks side by side from 16 to 256 nodes (§7.4). <strong>For broadcast, both scale flat</strong>, with cost per delivery independent of network size. nnet's single-copy tree is about 5× leaner on the wire and 3.5× cheaper in CPU than GossipSub, but loses up to 1.6% of messages; with redundancy (K = 3) it costs about the same as GossipSub. <strong>For point-to-point messages to random destinations</strong>, libp2p's direct streams are 2–3× cheaper while every node can stay connected to every other, but their cost grows with N; nnet's relay grows only logarithmically and becomes cheaper once nodes can't keep connections to everyone.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th><strong>nnet</strong></th>
+<th><strong>libp2p</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core abstraction</td>
+<td>Message routed over a Chord overlay</td>
+<td>Secure, multiplexed stream to a peer</td>
+</tr>
+<tr>
+<td>Topology</td>
+<td>One built-in structured ring (Chord, extensible)</td>
+<td>None mandated. DHT and pubsub meshes are optional modules</td>
+</tr>
+<tr>
+<td>Identity</td>
+<td>Arbitrary 32-byte ID (application decides)</td>
+<td>PeerID = hash of a public key, verified in the handshake</td>
+</tr>
+<tr>
+<td>Addressing</td>
+<td><code>tcp://host:port</code>, <code>kcp://host:port</code></td>
+<td>Multiaddr, e.g. <code>/ip4/1.2.3.4/udp/4001/quic-v1/p2p/12D3…</code></td>
+</tr>
+<tr>
+<td>Transports</td>
+<td>TCP, KCP (reliable UDP)</td>
+<td>TCP, QUIC, WebSocket, WebTransport, WebRTC(-direct), and more</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>None built in; added through middleware</td>
+<td>Noise or TLS 1.3, mandatory</td>
+</tr>
+<tr>
+<td>Multiplexing</td>
+<td>smux (default) or yamux, with a fixed pool of streams</td>
+<td>yamux (QUIC streams native), one stream per protocol interaction</td>
+</tr>
+<tr>
+<td>Unicast to a non-neighbor</td>
+<td>Multi-hop relay, ≤ log₂N hops w.h.p.</td>
+<td>Look up the peer (DHT), then dial directly (possibly with hole punching)</td>
+</tr>
+<tr>
+<td>Broadcast</td>
+<td>Flooding, or a Chord spanning tree (≈1×N transmissions)</td>
+<td>GossipSub mesh (≈D×N eager, D=6) plus lazy gossip</td>
+</tr>
+<tr>
+<td>NAT</td>
+<td>UPnP / NAT-PMP via middleware</td>
+<td>AutoNAT v2, Circuit Relay v2, DCUtR hole punching, UPnP</td>
+</tr>
+<tr>
+<td>Overload handling</td>
+<td>Bounded channels that <strong>drop</strong> when full</td>
+<td>Flow-controlled streams plus a hierarchical <strong>Resource Manager</strong></td>
+</tr>
+<tr>
+<td>Languages</td>
+<td>Go</td>
+<td>Go, Rust, JS/TS, Nim, Java/Kotlin, C++, Python, Zig, .NET…</td>
+</tr>
+<tr>
+<td>Main production user</td>
+<td>NKN (tens of thousands of nodes)</td>
+<td>IPFS, Ethereum consensus layer, Filecoin, Polkadot, Celestia, …</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="1-two-philosophies">1. Two philosophies<a class="headerlink" href="#1-two-philosophies" title="Link to this section">#</a></h2>
+<p>It helps to start with the question each project set out to answer.</p>
+<p><strong>NKN</strong> (New Kind of Network) wanted a data-transmission network in which <em>relaying other people's packets is the product</em>. Nodes earn rewards for forwarding traffic, so the overlay must be <strong>deterministic and verifiable</strong>. Given everyone's ID, anyone should be able to check that a node chose the right neighbors and forwarded to the right next hop. NKN's design document says it chose Chord over Kademlia for exactly this reason: in Chord, "the choice of neighbors and route is deterministic given all nodes address on the ring" (<a target="_blank" rel="noopener" href="https://github.com/nknorg/nkn/wiki/Tech-Design-Doc%3A-Distributed-Data-Transmission-Network-%28DDTN%29">NKN DDTN design doc</a>). nnet is the reusable networking layer pulled out of that system.</p>
+<p><strong>libp2p</strong> began as the networking layer of IPFS and turned into a general framework. Its main goal is to <strong>decouple applications from network assumptions</strong>. Peers may be browsers, phones, servers behind carrier-grade NAT, or nodes on a private network, and they may share no transport at all. libp2p focuses on reachability, identity, security and protocol negotiation, and leaves topology to the application.</p>
+<p>One way to picture it: <strong>nnet is a postal system</strong> (drop a letter addressed to a key, and the network carries it), while <strong>libp2p is a phone system</strong> (dial a number and get a private line, and the directory is a separate service).</p>
+<figure><img width="1600" height="819" loading="lazy" decoding="async" alt="nnet routes messages over a ring; libp2p looks up a peer and dials it directly" src="images/01-philosophy.png" /><figcaption>Figure 1. The core difference: nnet carries the message across the overlay, while libp2p uses the overlay only as a directory and then opens a direct, encrypted stream.</figcaption></figure>
+<hr />
+<h2 id="2-nnet-architecture">2. nnet architecture<a class="headerlink" href="#2-nnet-architecture" title="Link to this section">#</a></h2>
+<h3 id="21-layered-design">2.1 Layered design<a class="headerlink" href="#21-layered-design" title="Link to this section">#</a></h3>
+<p>nnet is organized as a stack of small, swappable layers, all tied together by a middleware system:</p>
+<figure><img width="1600" height="1000" loading="lazy" decoding="async" alt="nnet architecture stack" src="images/02-nnet-architecture.png" /><figcaption>Figure 2. nnet's layers and the middleware hooks that connect them.</figcaption></figure>
+<p>The code layout matches the diagram closely. The interesting parts sit in <code>overlay/chord/</code> (Chord topology, relay routing, tree broadcast), <code>node/remotenode.go</code> (the per-peer I/O engine) and <code>overlay/routing/routing.go</code> (the generic router pipeline).</p>
+<h3 id="22-identity-and-addressing">2.2 Identity and addressing<a class="headerlink" href="#22-identity-and-addressing" title="Link to this section">#</a></h3>
+<p>A node's ID is a 32-byte value (<code>NodeIDBytes: 32</code>, so a <strong>256-bit ring</strong>). nnet creates a random one unless you supply your own. <strong>nnet does not tie IDs to keys.</strong> During the handshake (<code>ExchangeNode</code>), each side simply states its <code>{id, addr, data}</code>. Binding IDs to public keys, which a permissionless network needs to resist Sybil attacks, is left to the embedding application. NKN does this in its own codebase.</p>
+<p>Addresses are URI-like, with the transport as the scheme: <code>tcp://203.0.113.5:30001</code> or <code>kcp://…</code>. Each node chooses its own listening transport, and a node that supports several transports can talk to peers on any of them. That is the "transport-aware address scheme" the README advertises. If <code>Hostname</code> is left empty, the remote side fills it in from the observed connection address, which gives a crude version of libp2p's "observed address" feature.</p>
+<h3 id="23-the-wire-protocol">2.3 The wire protocol<a class="headerlink" href="#23-the-wire-protocol" title="Link to this section">#</a></h3>
+<p>Every message is a protobuf envelope:</p>
+<div class="hl"><pre><span></span><code><span class="kd">message</span><span class="w"> </span><span class="nc">Message</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">RoutingType</span><span class="w"> </span><span class="na">routing_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">   </span><span class="c1">// DIRECT, RELAY, BROADCAST_PUSH, BROADCAST_TREE</span>
+<span class="w">  </span><span class="n">MessageType</span><span class="w"> </span><span class="na">message_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">   </span><span class="c1">// PING, EXCHANGE_NODE, STOP, GET_SUCC_AND_PRED, FIND_SUCC_AND_PRED, BYTES</span>
+<span class="w">  </span><span class="kt">bytes</span><span class="w"> </span><span class="kd">message</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">          </span><span class="c1">// inner payload</span>
+<span class="w">  </span><span class="kt">bytes</span><span class="w"> </span><span class="na">message_id</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">          </span><span class="c1">// 8 random bytes by default</span>
+<span class="w">  </span><span class="kt">bytes</span><span class="w"> </span><span class="na">reply_to_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w">          </span><span class="c1">// set on replies → sync request/response</span>
+<span class="w">  </span><span class="kt">bytes</span><span class="w"> </span><span class="na">src_id</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span>
+<span class="w">  </span><span class="kt">bytes</span><span class="w"> </span><span class="na">dest_id</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mi">7</span><span class="p">;</span><span class="w">          </span><span class="c1">// ring key for RELAY</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>On the wire, a frame is a <strong>4-byte big-endian length prefix followed by the marshalled protobuf</strong>, with a maximum message size of 20 MiB. This envelope carries both overlay control traffic (find successors, ping) and application payloads. There is only one "protocol", and routing behavior is selected by <code>routing_type</code>. libp2p takes the opposite approach and gives every interaction its own protocol ID and stream.</p>
+<h3 id="24-the-per-peer-io-engine">2.4 The per-peer I/O engine<a class="headerlink" href="#24-the-per-peer-io-engine" title="Link to this section">#</a></h3>
+<p><code>RemoteNode</code> (in <code>node/remotenode.go</code>) is where nnet's throughput comes from. For each peer connection:</p>
+<ol>
+<li>A <strong>multiplexer session</strong> (smux by default) is created on the raw connection. The dialer opens <code>NumStreamsToOpen = 8</code> streams and the listener accepts up to <code>NumStreamsToAccept = 32</code>.</li>
+<li>Each stream runs an <strong><code>rx</code> goroutine</strong> that reads length-prefixed frames, passes the bytes through <code>MessageWillDecode</code> middleware (where decryption would go), unmarshals them and pushes the result into <code>rxMsgChan</code>.</li>
+<li>Each active stream also runs a <strong><code>tx</code> goroutine</strong>. All of them pull from one shared <code>txMsgChan</code>. <strong>Messages to a peer are therefore spread across 8 parallel streams</strong>, which avoids head-of-line blocking from a single large message and allows marshalling to happen in parallel.</li>
+<li>A single <strong><code>handleMsg</code> goroutine</strong> dedups and dispatches incoming messages to a per-routing-type channel on the <code>LocalNode</code>, and runs a keepalive timer (20 s by default).</li>
+<li>A <strong><code>startMeasuringRoundTripTime</code> goroutine</strong> pings the peer about every 5 s (with ±20% jitter) and keeps a smoothed RTT, <code>rtt = (rtt + sample) / 2</code>. As §3.3 shows, routing uses this value.</li>
+</ol>
+<figure><img width="1600" height="860" loading="lazy" decoding="async" alt="Per-peer goroutines, channels and streams in nnet" src="images/03-remotenode-engine.png" /><figcaption>Figure 3. One RemoteNode: a shared tx channel fans out to 8 stream writers, 8 stream readers fan in to one rx channel, and any full channel drops the message.</figcaption></figure>
+<p>The README promises "a fixed number of goroutines and connections … given network size." More precisely, the number of goroutines per peer is constant (about 3 + 2 × streams), the number of peers is O(log N), and <strong>neither grows with message volume</strong>. Router workers are set by constants (<code>numWorkers = 1</code> per router).</p>
+<p><strong>Backpressure is lossy.</strong> Every channel handoff is a non-blocking <code>select { case ch &lt;- msg: default: log.Warning("… full, discarding msg") }</code>. Buffers are large (2,333 per peer, 23,333 per routing type), but once they fill up nnet <strong>drops messages</strong> rather than slowing senders. That is reasonable for a network where higher layers (NKN's session protocol, blockchain gossip) retransmit or tolerate loss. It is also a sharp contrast with libp2p's flow-controlled streams.</p>
+<h3 id="25-sync-messaging-without-threads">2.5 Sync messaging without threads<a class="headerlink" href="#25-sync-messaging-without-threads" title="Link to this section">#</a></h3>
+<p>nnet has a convenient request/response model. <code>SendBytesRelaySync(data, key)</code> sends a message and blocks until a reply arrives or the request times out. It works like this:</p>
+<ul>
+<li>When sending, <code>AllocReplyChan(msgID, timeout)</code> stores a channel in an expiring cache, keyed by message ID.</li>
+<li>The responder calls <code>SendBytesRelayReply(msgID, data, srcID)</code>, which sets <code>reply_to_id = msgID</code> and routes the reply back to the sender's ID over the overlay.</li>
+<li>When the reply reaches the original node, <code>sendMessageToLocalNode</code> sees that <code>reply_to_id</code> is set, looks up the waiting channel and delivers the reply directly. No handler sees it.</li>
+</ul>
+<p>Because replies are routed by key, <strong>a request/response exchange works between any two nodes on the ring, even when they have no direct connection.</strong> libp2p has no equivalent of this. You would build it yourself on top of streams.</p>
+<h3 id="26-middleware-as-the-extension-mechanism">2.6 Middleware as the extension mechanism<a class="headerlink" href="#26-middleware-as-the-extension-mechanism" title="Link to this section">#</a></h3>
+<p>Almost every lifecycle event in nnet is a <strong>typed, prioritized middleware chain</strong>: <code>RemoteNodeConnected</code>, <code>RemoteNodeReady</code>, <code>WillConnectToNode</code>, <code>MessageEncoded</code>, <code>MessageWillDecode</code>, <code>BytesReceived</code>, <code>RemoteMessageRouted</code>, <code>RelayPriority</code>, <code>SuccessorAdded</code>, <code>FingerTableAdded</code>, <code>NetworkWillStart</code>, and many more. A middleware is just a function that returns <code>(possiblyModifiedArgs…, callNext bool)</code>. Chains run from highest priority to lowest, and nnet's own internals register at priority 0.</p>
+<p>This is how nnet adds features that libp2p builds in:</p>
+<ul>
+<li><strong>Encryption.</strong> The encryption example installs AES-GCM in <code>MessageEncoded</code> / <code>MessageWillDecode</code> with a fixed key, and its comments note that production code should derive per-node or per-session keys.</li>
+<li><strong>NAT traversal.</strong> UPnP/NAT-PMP port mapping runs in <code>NetworkWillStart</code>.</li>
+<li><strong>Access control.</strong> Return <code>false</code> from <code>WillConnectToNode</code> or <code>RemoteNodeConnected</code>.</li>
+<li><strong>Routing policy.</strong> <code>RelayPriority</code> lets you replace the RTT-based next-hop score (§3.3).</li>
+</ul>
+<p>This design is very flexible and keeps the core small. The trade-off is that <strong>security is opt-in and easy to get wrong</strong>, whereas libp2p makes it mandatory.</p>
+<hr />
+<h2 id="3-nnets-core-algorithms">3. nnet's core algorithms<a class="headerlink" href="#3-nnets-core-algorithms" title="Link to this section">#</a></h2>
+<h3 id="31-an-improved-chord-neighbor-lists-instead-of-neighbor-pointers">3.1 An "improved Chord": neighbor <em>lists</em> instead of neighbor <em>pointers</em><a class="headerlink" href="#31-an-improved-chord-neighbor-lists-instead-of-neighbor-pointers" title="Link to this section">#</a></h3>
+<p>Classic Chord (Stoica et al., 2001) gives each node one successor pointer, one predecessor pointer, and m finger pointers, where <code>finger[i]</code> is the first node at or after <code>id + 2^i</code>. nnet generalizes <strong>every pointer into a bounded, sorted list</strong>, the <code>NeighborList</code>:</p>
+<div class="hl"><pre><span></span><code><span class="nx">successors</span><span class="w">   </span><span class="p">=</span><span class="w"> </span><span class="nx">NeighborList</span><span class="p">(</span><span class="nx">start</span><span class="p">=</span><span class="nx">id</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">end</span><span class="p">=</span><span class="nx">id</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">cap</span><span class="p">=</span><span class="nx">MinNumSuccessors</span><span class="w"> </span><span class="cm">/*8*/</span><span class="p">,</span><span class="w">  </span><span class="nx">reversed</span><span class="p">=</span><span class="kc">false</span><span class="p">)</span>
+<span class="nx">predecessors</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">NeighborList</span><span class="p">(</span><span class="nx">start</span><span class="p">=</span><span class="nx">id</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">end</span><span class="p">=</span><span class="nx">id</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">cap</span><span class="p">=</span><span class="nx">MinNumSuccessors</span><span class="p">,</span><span class="w">         </span><span class="nx">reversed</span><span class="p">=</span><span class="kc">true</span><span class="p">)</span>
+<span class="nx">fingerTable</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">NeighborList</span><span class="p">(</span><span class="nx">start</span><span class="p">=</span><span class="nx">id</span><span class="o">+</span><span class="mi">2</span><span class="p">^</span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">end</span><span class="p">=</span><span class="nx">id</span><span class="o">+</span><span class="mi">2</span><span class="p">^(</span><span class="nx">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">cap</span><span class="p">=</span><span class="nx">NumFingerSuccessors</span><span class="w"> </span><span class="cm">/*3*/</span><span class="p">)</span><span class="w">   </span><span class="c1">// i = 0..255</span>
+<span class="nx">neighbors</span><span class="w">    </span><span class="p">=</span><span class="w"> </span><span class="nx">NeighborList</span><span class="p">(</span><span class="nx">all</span><span class="p">,</span><span class="w"> </span><span class="nx">unbounded</span><span class="p">)</span><span class="w">    </span><span class="c1">// every connected peer</span>
+</code></pre></div>
+
+<p>A <code>NeighborList</code> keeps the closest <code>cap</code> nodes (by clockwise distance from <code>start</code>) that fall within its ID range. <code>AddOrReplace</code> inserts a node only if it is closer than the current farthest entry, and evicts that entry when the list is full. Several things follow from this:</p>
+<ul>
+<li><strong>Redundant fingers.</strong> Each finger bucket holds up to 3 nodes rather than 1. That gives routing alternatives when a node fails and lets the router choose the lowest-latency candidate (§3.3).</li>
+<li><strong>Adaptive successor list size.</strong> <code>updateSuccPredMaxNumNodes</code> sets the successor/predecessor capacity to <code>max(8, NumSuccessorsFactor × nonEmptyFingers)</code>. The number of non-empty fingers is about log₂N, so the lists grow to about <strong>2·log₂N</strong>. This is exactly the O(log N) successor list Chord's theory requires to survive churn, and here it scales automatically as the network grows.</li>
+<li><strong>Connection lifecycle tied to topology.</strong> When a node is evicted from every list, <code>MaybeStopRemoteNode</code> closes its outbound connection. Connections exist only while the topology needs them, and nothing like a separate connection manager is required.</li>
+</ul>
+<figure><img width="1600" height="1000" loading="lazy" decoding="async" alt="Successor, predecessor and finger-bucket lists on a Chord ring" src="images/04-chord-neighbor-lists.png" /><figcaption>Figure 4. Node A's neighbor lists on a small example ring. Each finger bucket keeps up to K = 3 nodes instead of a single pointer.</figcaption></figure>
+<p><strong>Estimated per-node state:</strong> about log₂N non-empty fingers × 3, plus 2 × 2·log₂N successors and predecessors, minus overlap (low fingers usually coincide with successors). That works out to roughly <strong>5–7·log₂N connections</strong>, around 70–90 at 10,000 nodes. This is my estimate from the code, not a measured figure.</p>
+<h3 id="32-join-and-stabilization">3.2 Join and stabilization<a class="headerlink" href="#32-join-and-stabilization" title="Link to this section">#</a></h3>
+<p><strong>Join.</strong> A new node connects to any seed (<code>Join("tcp://seed:port")</code>). Once that first neighbor is ready, it calls <code>FindSuccessors(id - 1, cap)</code>. That is a relay-routed <code>FIND_SUCC_AND_PRED</code> request, which travels around the ring to the node responsible for the key and returns its successor and predecessor lists. The new node connects to those successors and starts stabilizing.</p>
+<p><strong>Stabilization</strong> runs as six independent loops, each with randomized jitter (<code>BaseStabilizeInterval = 2s</code>, ±⅓):</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Loop</th>
+<th>Period</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>updateSuccessors</code></td>
+<td>~1× base</td>
+<td>Ask a successor (the first one or a random one, 50/50) for its successors/predecessors, and connect to any closer nodes</td>
+</tr>
+<tr>
+<td><code>updatePredecessors</code></td>
+<td>~3× base</td>
+<td>Same, mirrored</td>
+</tr>
+<tr>
+<td><code>findNewPredecessors</code></td>
+<td>~5× base</td>
+<td><code>FindPredecessors(id-1)</code> through the ring. <strong>Skipped if the node has no inbound connections</strong>, since that suggests it is behind NAT and should not ask others to treat it as a successor</td>
+</tr>
+<tr>
+<td><code>updateFinger</code></td>
+<td>~1× base per non-empty finger</td>
+<td>Refresh each finger bucket from its members' neighbor lists</td>
+</tr>
+<tr>
+<td><code>findNewFinger</code></td>
+<td>~1× base per finger index</td>
+<td><code>FindSuccessors(id + 2^i)</code> and connect if the result is closer. The loop skips ahead across empty finger ranges</td>
+</tr>
+<tr>
+<td><code>stopInboundFingers</code></td>
+<td>~10× base</td>
+<td>Close one <em>inbound</em> finger connection per bucket, unless that node is a predecessor</td>
+</tr>
+</tbody>
+</table></div>
+<p>The last loop shows a subtle design principle. <strong>nnet routes only over connections it dialed itself (or over predecessors).</strong> In relay routing:</p>
+<div class="hl"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">rn</span><span class="p">.</span><span class="nx">IsOutbound</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">!</span><span class="nx">rr</span><span class="p">.</span><span class="nx">chord</span><span class="p">.</span><span class="nx">predecessors</span><span class="p">.</span><span class="nx">Exists</span><span class="p">(</span><span class="nx">rn</span><span class="p">.</span><span class="nx">Id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">continue</span><span class="w"> </span><span class="c1">// never use an inbound, non-predecessor connection as a next hop</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Inbound connections come from other nodes' choices, and a malicious node could open many of them. Outbound connections come from your own deterministic, verifiable Chord computation. Restricting next hops to outbound links makes it harder for an attacker to insert themselves into your routes. It also means a NATed node, which only has outbound links, still routes correctly.</p>
+<h3 id="33-relay-routing-with-proximity-awareness">3.3 Relay routing with proximity awareness<a class="headerlink" href="#33-relay-routing-with-proximity-awareness" title="Link to this section">#</a></h3>
+<p>Here is <code>RelayRouting.GetNodeToRoute</code> with the boilerplate removed:</p>
+<div class="hl"><pre><span></span><code><span class="c1">// 1. Am I responsible? (dest ∈ [me, successor))  → deliver locally</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">succ</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">BetweenLeftIncl</span><span class="p">(</span><span class="nx">me</span><span class="p">,</span><span class="w"> </span><span class="nx">succ</span><span class="p">.</span><span class="nx">Id</span><span class="p">,</span><span class="w"> </span><span class="nx">dest</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">local</span><span class="w"> </span><span class="p">}</span>
+
+<span class="c1">// 2. Greedy: scan finger buckets from farthest to nearest</span>
+<span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">255</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="o">--</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">best</span><span class="p">,</span><span class="w"> </span><span class="nx">bestPrio</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="nx">inf</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">rn</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">fingerTable</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">{</span><span class="w">                </span><span class="c1">// up to 3 candidates</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">outbound</span><span class="p">(</span><span class="nx">rn</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">!</span><span class="nx">isPredecessor</span><span class="p">(</span><span class="nx">rn</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">continue</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">BetweenIncl</span><span class="p">(</span><span class="nx">me</span><span class="p">,</span><span class="w"> </span><span class="nx">dest</span><span class="p">,</span><span class="w"> </span><span class="nx">rn</span><span class="p">.</span><span class="nx">Id</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">              </span><span class="c1">// doesn&#39;t overshoot</span>
+<span class="w">            </span><span class="nx">prio</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">-</span><span class="nx">rtt</span><span class="p">(</span><span class="nx">rn</span><span class="p">).</span><span class="nx">Milliseconds</span><span class="p">()</span><span class="w">            </span><span class="c1">// proximity: lower RTT wins</span>
+<span class="w">            </span><span class="nx">prio</span><span class="w">  </span><span class="p">=</span><span class="w"> </span><span class="nx">RelayPriority</span><span class="w"> </span><span class="nx">middleware</span><span class="p">(</span><span class="nx">rn</span><span class="p">,</span><span class="w"> </span><span class="nx">prio</span><span class="p">)</span><span class="w"> </span><span class="c1">// pluggable policy</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nx">prio</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">bestPrio</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">best</span><span class="p">,</span><span class="w"> </span><span class="nx">bestPrio</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">rn</span><span class="p">,</span><span class="w"> </span><span class="nx">prio</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">best</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">best</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// 3. Fallback: walk the successor list</span>
+</code></pre></div>
+
+<p>This is Chord's <em>closest preceding finger</em> rule with one important addition. Within the farthest useful bucket, the router chooses the <strong>lowest-RTT candidate</strong> among up to <code>NumFingerSuccessors</code> nodes. This technique is known in the literature as <strong>proximity route selection (PRS)</strong>. Because every candidate in bucket <em>i</em> lies within [id+2ⁱ, id+2ⁱ⁺¹), any of them at least halves the remaining distance, so the O(log N) hop bound still holds. Meanwhile each hop tends to be fast. PRS has been studied extensively for Chord and Pastry and typically cuts end-to-end stretch noticeably. The <code>RelayPriority</code> middleware lets an application replace RTT with another score, such as reputation, stake or bandwidth.</p>
+<figure><img width="1600" height="940" loading="lazy" decoding="async" alt="A relay route on the ring with RTT-based next-hop choice" src="images/05-relay-routing.png" /><figcaption>Figure 5. A relay route on a 48-node ring. At the first hop, the 22 ms candidate wins over 37 ms and 130 ms candidates in the same finger bucket.</figcaption></figure>
+<p><strong>Hop count:</strong> at most log₂N with high probability, and about ½·log₂N on average. To check this I re-implemented nnet's finger table and relay rule in a small simulator (<a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/figure-src/sim.py">figure-src/sim.py</a>). Over 2,000 random lookups per network size, the mean was <strong>6.1 hops at 10,000 nodes</strong> (maximum 11), slightly below ½·log₂N because each bucket holds up to 3 candidates. At very small N the maximum can exceed log₂N, since that bound only holds with high probability.</p>
+<figure><img width="1600" height="840" loading="lazy" decoding="async" alt="Simulated relay hop counts versus network size" src="images/06-chart-relay-hops-sim.png" /><figcaption>Figure 6. Simulated relay hops grow logarithmically. The mean tracks just under ½·log₂N.</figcaption></figure>
+<h3 id="34-broadcast-i-push-flooding">3.4 Broadcast I: push (flooding)<a class="headerlink" href="#34-broadcast-i-push-flooding" title="Link to this section">#</a></h3>
+<p><code>BroadcastRouting</code> forwards to <strong>every neighbor except the sender and the origin</strong>. Two caches stop it from looping:</p>
+<ul>
+<li>the <strong>rx cache</strong> (<code>LocalRxMsgCacheRoutingType = [BROADCAST_PUSH]</code>, 300 s TTL), which drops message IDs the node has already seen before routing them, and</li>
+<li>the <strong>tx cache</strong> per peer, which never sends the same message ID to the same peer twice.</li>
+</ul>
+<p>Push broadcast is fast (it explores every path in parallel) and very robust, but its cost is about <strong>N × degree</strong> transmissions, and degree is in the tens.</p>
+<h3 id="35-broadcast-ii-the-chord-spanning-tree">3.5 Broadcast II: the Chord spanning tree<a class="headerlink" href="#35-broadcast-ii-the-chord-spanning-tree" title="Link to this section">#</a></h3>
+<p>This is nnet's best-known feature. The finger table already defines an implicit <strong>spanning tree rooted at any node</strong>, an idea from El-Ansary, Alima, Brand and Haridi, <em>"Efficient Broadcast in Structured P2P Networks"</em> (IPTPS 2003). nnet implements it in about 20 lines:</p>
+<div class="hl"><pre><span></span><code><span class="c1">// BroadcastTreeRouting.GetNodeToRoute</span>
+<span class="nx">maxIdx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">256</span><span class="w">                                   </span><span class="c1">// originator: use all fingers</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">msg</span><span class="w"> </span><span class="nx">came</span><span class="w"> </span><span class="nx">from</span><span class="w"> </span><span class="nx">remote</span><span class="w"> </span><span class="nx">node</span><span class="w"> </span><span class="nx">S</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">d</span><span class="w">      </span><span class="o">:=</span><span class="w"> </span><span class="nx">Distance</span><span class="p">(</span><span class="nx">S</span><span class="p">.</span><span class="nx">Id</span><span class="p">,</span><span class="w"> </span><span class="nx">me</span><span class="p">.</span><span class="nx">Id</span><span class="p">)</span><span class="w">              </span><span class="c1">// clockwise distance S → me</span>
+<span class="w">    </span><span class="nx">maxIdx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">d</span><span class="p">.</span><span class="nx">BitLen</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w">                     </span><span class="c1">// I own the sub-range below that power of two</span>
+<span class="p">}</span>
+<span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nx">maxIdx</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">send</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="nx">every</span><span class="w"> </span><span class="nx">node</span><span class="w"> </span><span class="nx">in</span><span class="w"> </span><span class="nx">fingerTable</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nx">except</span><span class="w"> </span><span class="nx">sender</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nx">origin</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>The intuition: if S reached me through its finger <em>j</em>, I am at distance roughly 2ʲ from S, and S has already assigned the higher ranges to its other fingers. So I only cover fingers 0…j−1, which is the arc between me and my next sibling in S's tree. Each node hands responsibility for disjoint sub-arcs to its own fingers, so <strong>every node receives the message about once</strong>. The tree's depth is ≤ log₂N.</p>
+<p>With <code>NumFingerSuccessors = K</code>, each bucket sends to K nodes, and you get "<strong>K-times</strong>" delivery: redundancy K in return for K× bandwidth. At K = 1 it is a pure tree with about N−1 transmissions.</p>
+<figure><img width="1600" height="940" loading="lazy" decoding="async" alt="Spanning-tree broadcast edges on a 32-node ring" src="images/07-tree-broadcast.png" /><figcaption>Figure 7. The tree-broadcast rule run on a 32-node ring. Red dashed edges are the duplicate deliveries caused by overlapping arcs.</figcaption></figure>
+<h4 id="what-i-measured">What I measured<a class="headerlink" href="#what-i-measured" title="Link to this section">#</a></h4>
+<p>I ran the repository's own <code>examples/efficient-broadcast</code> on an Apple M4 Pro, with all nodes local over TCP. The numbers are <strong>forwarding decisions</strong> (next-hops chosen, as counted by the example's <code>RemoteMessageRouted</code> middleware), summed across the network for one broadcast:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Nodes</th>
+<th>K</th>
+<th>Push sends</th>
+<th>Tree sends (default config)</th>
+<th>Tree sends per node</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10</td>
+<td>1</td>
+<td>81</td>
+<td>10</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>30</td>
+<td>1</td>
+<td>685</td>
+<td>38</td>
+<td>1.27</td>
+</tr>
+<tr>
+<td>60</td>
+<td>1</td>
+<td>1,767</td>
+<td>92</td>
+<td>1.53</td>
+</tr>
+<tr>
+<td>100</td>
+<td>1</td>
+<td>3,344</td>
+<td>156</td>
+<td>1.56</td>
+</tr>
+<tr>
+<td>60</td>
+<td>3</td>
+<td>2,219</td>
+<td><strong>3,374</strong></td>
+<td>56</td>
+</tr>
+</tbody>
+</table></div>
+<p>At K = 1, tree broadcast costs <strong>20–25× less</strong> than push, as advertised. <strong>At K = 3 with the default configuration, however, tree broadcast costs more than flooding.</strong> The reason is in the defaults: the receive-side dedup cache is enabled only for <code>BROADCAST_PUSH</code>. Two effects compound:</p>
+<ol>
+<li><strong>Arcs overlap slightly.</strong> A receiver's arc is bounded by a power of two <em>measured from itself</em> (<code>self + 2ʲ</code>), while the next sibling's arc starts at <code>S + 2ʲ⁺¹</code>. Since <code>self ≥ S + 2ʲ</code>, the two arcs overlap by the gap between <code>S + 2ʲ</code> and <code>self</code>, roughly one node spacing. A node in that overlap gets the message twice, which is why K = 1 shows about 1.3–1.6 sends per node instead of exactly 1. The example's own message string says the message should be received "almost once".</li>
+<li><strong>Duplicates aren't suppressed, so they re-propagate.</strong> Without an rx cache for tree messages, every duplicate is forwarded down its own sub-tree. At K = 3, every bucket emits 3 copies, so this cascades.</li>
+</ol>
+<p>After adding one line, <code>LocalRxMsgCacheRoutingType: {BROADCAST_PUSH, BROADCAST_TREE}</code>, the picture changes:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Nodes</th>
+<th>K</th>
+<th>Push sends</th>
+<th>Tree sends (tree dedup on)</th>
+<th>Tree sends per node</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>60</td>
+<td>1</td>
+<td>1,751</td>
+<td>75</td>
+<td>1.25</td>
+</tr>
+<tr>
+<td>60</td>
+<td>3</td>
+<td>2,197</td>
+<td>269</td>
+<td>4.5</td>
+</tr>
+<tr>
+<td>100</td>
+<td>3</td>
+<td>4,362</td>
+<td>569</td>
+<td>5.7</td>
+</tr>
+</tbody>
+</table></div>
+<figure><img width="1600" height="840" loading="lazy" decoding="async" alt="Measured sends per node for push, tree default and tree with dedup" src="images/08-chart-broadcast-measured.png" /><figcaption>Figure 8. Measured at 60 nodes. With K = 3 and the default configuration, the tree costs more than flooding; enabling dedup fixes it.</figcaption></figure>
+<h4 id="what-happens-at-larger-scale">What happens at larger scale<a class="headerlink" href="#what-happens-at-larger-scale" title="Link to this section">#</a></h4>
+<p>Local runs stop at around 100 nodes, so I ran the simulator on 64-bit rings of up to 10,000 nodes. It reproduces the local measurements closely: at 60 nodes and K = 1 it gives 1.46 sends per node without dedup and 1.24 with it, against 1.53 and 1.25 measured. At larger sizes the two configurations behave very differently:</p>
+<ul>
+<li><strong>With tree dedup on</strong>, cost per node stays flat as N grows: about <strong>1.3 (K=1), 2.9 (K=2) and 4.5 (K=3)</strong> at 10,000 nodes.</li>
+<li><strong>With library defaults</strong>, K = 1 stays manageable (about 1.6 per node), but K ≥ 2 <strong>blows up as the network grows</strong>: about 255 sends per node at K = 2 and <strong>about 7,100 per node at K = 3</strong> for a 10,000-node network. In practice the bounded channels would fill and start dropping messages long before that.</li>
+</ul>
+<figure><img width="1600" height="900" loading="lazy" decoding="async" alt="Simulated tree broadcast cost versus network size with and without dedup" src="images/09-chart-tree-scaling-sim.png" /><figcaption>Figure 9. Simulated tree-broadcast cost (log scale). With dedup on, cost stays flat below GossipSub's ≈6 eager sends per node. With library defaults and K ≥ 2, it grows with network size.</figcaption></figure>
+<p><strong>Practical advice:</strong> if you use <code>BROADCAST_TREE</code>, add it to <code>LocalRxMsgCacheRoutingType</code>, and you can also add it to <code>RemoteTxMsgCacheRoutingType</code>. With K &gt; 1 this is mandatory. (In NKN's production configuration this is presumably tuned. These results apply to the library's defaults.)</p>
+<h4 id="throughput-impact">Throughput impact<a class="headerlink" href="#throughput-impact" title="Link to this section">#</a></h4>
+<p>nnet's <code>message-benchmark</code> floods broadcast messages and reports unique messages received per node. On the M4 Pro with 16 local nodes:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Unique msgs/s per node (1 KB)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Push</td>
+<td>~5,000</td>
+</tr>
+<tr>
+<td>Tree (K=1)</td>
+<td>~13,500</td>
+</tr>
+</tbody>
+</table></div>
+<p>That is about 2.7× better with every process sharing one machine's CPU. The README reports about 10× on a 2018 MacBook Pro (300 vs. 3,000 messages/s). Both results point the same way: when nodes are bandwidth- or CPU-bound, removing redundant copies translates directly into application throughput.</p>
+<figure><img width="1600" height="760" loading="lazy" decoding="async" alt="nnet throughput: 66k msgs/s, 3.1 GB/s and push vs tree broadcast" src="images/10-chart-throughput.png" /><figcaption>Figure 10. nnet throughput measured on one machine. These are relative numbers: every node shares the same CPU and loopback interface.</figcaption></figure>
+<p><strong>The trade-off is robustness.</strong> A tree has single points of failure. If an interior node crashes mid-broadcast, its whole sub-arc misses the message. Flooding (and GossipSub) route around failures automatically. nnet's README describes this choice explicitly: use push for small, critical messages (votes), use tree for high-volume, loss-tolerant ones (transactions), and use pull, which was planned but never implemented, for large critical ones (blocks).</p>
+<hr />
+<h2 id="4-libp2p-architecture">4. libp2p architecture<a class="headerlink" href="#4-libp2p-architecture" title="Link to this section">#</a></h2>
+<h3 id="41-the-building-blocks">4.1 The building blocks<a class="headerlink" href="#41-the-building-blocks" title="Link to this section">#</a></h3>
+<p>libp2p is a set of specifications (<a target="_blank" rel="noopener" href="https://github.com/libp2p/specs">github.com/libp2p/specs</a>) with interoperable implementations in many languages. The reference implementation, go-libp2p (v0.50 at the time of writing), is organized as follows:</p>
+<figure><img width="1600" height="1000" loading="lazy" decoding="async" alt="libp2p architecture stack" src="images/11-libp2p-architecture.png" /><figcaption>Figure 11. go-libp2p's layers. QUIC skips the upgrader because TLS 1.3 and streams are built into the transport.</figcaption></figure>
+<p>By default go-libp2p listens on TCP, QUIC-v1, WebTransport and WebRTC-direct over both IPv4 and IPv6, and enables TLS and Noise for security with yamux for multiplexing (<code>defaults.go</code>).</p>
+<h3 id="42-identity-peerid">4.2 Identity: PeerID<a class="headerlink" href="#42-identity-peerid" title="Link to this section">#</a></h3>
+<p>Every libp2p node has a key pair, and its <strong>PeerID is a multihash of its public key</strong>. Ed25519 keys are embedded directly using the identity hash. The security handshake (Noise XX or TLS 1.3 with a libp2p certificate extension) <strong>proves possession of the key</strong>, so after any connection you know cryptographically who is on the other end. nnet leaves this entirely to the application.</p>
+<h3 id="43-multiaddr-self-describing-composable-addresses">4.3 Multiaddr: self-describing, composable addresses<a class="headerlink" href="#43-multiaddr-self-describing-composable-addresses" title="Link to this section">#</a></h3>
+<p><code>/ip4/198.51.100.7/udp/4001/quic-v1/p2p/12D3KooW…</code> encodes the whole protocol stack needed to reach a peer. Addresses compose. For example, a relayed address looks like <code>…/p2p/&lt;relay&gt;/p2p-circuit/p2p/&lt;target&gt;</code>. nnet's <code>tcp://h:p</code> covers one level of the same idea.</p>
+<h3 id="44-the-connection-upgrade-pipeline">4.4 The connection upgrade pipeline<a class="headerlink" href="#44-the-connection-upgrade-pipeline" title="Link to this section">#</a></h3>
+<p>On stream-oriented transports such as TCP and WebSocket, a raw connection goes through:</p>
+<ol>
+<li><strong>multistream-select</strong> negotiates the security protocol (<code>/noise</code> or <code>/tls/1.0.0</code>).</li>
+<li>The <strong>security handshake</strong> authenticates the PeerID and sets up encryption.</li>
+<li>The <strong>stream muxer</strong> is negotiated. libp2p optimizes this with <strong>inlined muxer negotiation</strong>: the muxer choice is carried inside the Noise handshake extensions or TLS ALPN, which saves a round trip.</li>
+<li>Every new stream runs multistream-select again to agree on an <strong>application protocol ID</strong>.</li>
+</ol>
+<p>QUIC skips steps 1–3 entirely because TLS 1.3 and native streams are built into the transport. That is why QUIC is the preferred transport in modern libp2p: connection setup takes 1 RTT instead of several.</p>
+<p>The <strong>one-stream-per-interaction</strong> model is the core contrast with nnet. In libp2p, a DHT query, a GossipSub session and a bitswap exchange each run on their own stream, each with its own protocol ID and flow-control window. In nnet, everything shares one envelope over a fixed pool of streams.</p>
+<figure><img width="1600" height="800" loading="lazy" decoding="async" alt="Connection setup steps for libp2p TCP, libp2p QUIC and nnet" src="images/12-connection-upgrade.png" /><figcaption>Figure 12. Steps from raw socket to first application byte (simplified). nnet's setup is the shortest because it skips authentication and encryption.</figcaption></figure>
+<h3 id="45-nat-traversal-as-a-first-class-stack">4.5 NAT traversal as a first-class stack<a class="headerlink" href="#45-nat-traversal-as-a-first-class-stack" title="Link to this section">#</a></h3>
+<p>libp2p includes the most complete decentralized NAT traversal stack in common use:</p>
+<ul>
+<li><strong>Identify</strong> tells you which address peers observe for you.</li>
+<li><strong>AutoNAT v2</strong> has peers dial you back to determine whether you are publicly reachable, and tests individual addresses.</li>
+<li><strong>Circuit Relay v2</strong> lets a private node reserve a slot on a public relay, which then forwards traffic, subject to time and data limits. Reservations make relaying cheap and resistant to abuse, so any public node can offer it.</li>
+<li><strong>DCUtR (Direct Connection Upgrade through Relay)</strong> uses the relayed connection to coordinate a simultaneous-open hole punch. It measures RTT over the relay so both sides can fire their SYNs or QUIC packets at the same moment.</li>
+</ul>
+<figure><img width="1600" height="960" loading="lazy" decoding="async" alt="Sequence diagram of AutoNAT, Circuit Relay v2 and DCUtR" src="images/13-nat-traversal.png" /><figcaption>Figure 13. How two NATed libp2p peers end up with a direct connection.</figcaption></figure>
+<p>A large measurement study across 4.4 million traversal attempts in 85,000+ networks found DCUtR hole punching succeeds about <strong>70% ± 7%</strong> of the time, with no significant difference between TCP and QUIC, and 97.6% of successes on the first attempt (<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2510.27500">Trautwein et al., <em>Challenging Tribal Knowledge</em>, arXiv 2510.27500</a>; <a target="_blank" rel="noopener" href="https://probelab.io/blog/can-libp2p-punch-through-nats/">ProbeLab</a>).</p>
+<p>nnet, by comparison, supports UPnP/NAT-PMP port mapping (in an example middleware) and a graceful-degradation rule: a node with no inbound connections does not advertise itself as anyone's successor. NKN handles unreachable devices with a client/node split, in which clients connect outbound to nodes and nodes must be reachable. That is a valid architectural choice, but it means only publicly reachable nodes can take part in the ring.</p>
+<h3 id="46-resource-management">4.6 Resource management<a class="headerlink" href="#46-resource-management" title="Link to this section">#</a></h3>
+<p>go-libp2p's <strong>Resource Manager</strong> enforces hierarchical limits on memory, file descriptors, connections and streams across nested <em>scopes</em>: system → transient → service → protocol → peer → connection → stream. The <strong>Connection Manager</strong> trims connections between low and high watermarks, protecting tagged peers. The <strong>connection gater</strong> gives policy hooks at each dial and accept stage. Together they give libp2p a defense against resource-exhaustion DoS that nnet lacks. In nnet, buffers are bounded, but nothing limits how many inbound connections a peer may open, and overload is handled by dropping messages.</p>
+<hr />
+<h2 id="5-libp2ps-core-algorithms">5. libp2p's core algorithms<a class="headerlink" href="#5-libp2ps-core-algorithms" title="Link to this section">#</a></h2>
+<h3 id="51-kademlia-dht">5.1 Kademlia DHT<a class="headerlink" href="#51-kademlia-dht" title="Link to this section">#</a></h3>
+<p>libp2p's DHT (<a target="_blank" rel="noopener" href="https://github.com/libp2p/specs/tree/master/kad-dht">spec</a>; the public instance is called <strong>Amino</strong>) uses <strong>XOR distance</strong> over SHA-256 keys:</p>
+<ul>
+<li><strong>k-buckets</strong> with <code>k = 20</code> (<code>amino.DefaultBucketSize</code>),</li>
+<li><strong>iterative lookups</strong> with concurrency <code>α = 10</code> (<code>DefaultConcurrency</code>), ending once the <code>β = 3</code> closest peers (<code>DefaultResiliency</code>) have responded,</li>
+<li>routing-table refresh every 10 minutes,</li>
+<li><strong>provider records</strong> ("peer X has content Y") republished every 22 h and expiring after 48 h on IPFS.</li>
+</ul>
+<p>Kademlia's lookups are <em>iterative</em>: the querier contacts each hop itself. nnet's Chord lookups are <em>recursive</em>: the message is forwarded hop by hop. With iterative lookups the querier controls parallelism and timeouts, and a single slow or malicious hop is easy to route around, because α requests are in flight at once. Recursive routing needs fewer round trips back to the origin and lets each hop apply local knowledge, such as nnet's RTT-based choice, but the origin has to trust every intermediate node to forward faithfully.</p>
+<p>XOR distance is <strong>symmetric</strong>, so a node learns useful routing entries from incoming queries. Chord's clockwise distance is <strong>asymmetric</strong>, so it cannot. On the other hand, Chord's neighbor sets are <strong>deterministic</strong>: for any ID, exactly one correct finger set exists. That is what makes NKN's neighbor choice verifiable. Kademlia allows any of k nodes per bucket and leaves the choice to the node, which is good for liveness and bad for auditability.</p>
+<figure><img width="1600" height="860" loading="lazy" decoding="async" alt="Chord clockwise fingers versus Kademlia XOR k-buckets" src="images/14-chord-vs-kademlia.png" /><figcaption>Figure 14. Chord's power-of-two fingers give each ID one correct neighbor set. Kademlia's XOR prefix buckets accept any of k peers.</figcaption></figure>
+<p>The biggest difference is in <strong>what the DHT is used for</strong>. In libp2p the DHT is a <em>directory</em>: <code>FindPeer(id)</code> returns addresses, and then you dial directly. In nnet the overlay is the <em>data path</em>: the message itself travels across the hops.</p>
+<h3 id="52-gossipsub">5.2 GossipSub<a class="headerlink" href="#52-gossipsub" title="Link to this section">#</a></h3>
+<p>GossipSub (<a target="_blank" rel="noopener" href="https://github.com/libp2p/specs/tree/master/pubsub/gossipsub">spec</a>) is libp2p's pubsub protocol and the message layer of the Ethereum consensus network. Each topic maintains a <strong>sparse random mesh</strong>:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Parameter (go defaults)</th>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>D</code></td>
+<td>6</td>
+<td>target mesh degree (full messages pushed eagerly)</td>
+</tr>
+<tr>
+<td><code>Dlo</code> / <code>Dhi</code></td>
+<td>5 / 12</td>
+<td>GRAFT below / PRUNE above</td>
+</tr>
+<tr>
+<td><code>Dlazy</code></td>
+<td>6</td>
+<td>peers that receive IHAVE metadata gossip</td>
+</tr>
+<tr>
+<td>Heartbeat</td>
+<td>1 s</td>
+<td>mesh maintenance + gossip emission</td>
+</tr>
+<tr>
+<td><code>mcache</code></td>
+<td>5 windows, gossip from 3</td>
+<td>history for IWANT responses</td>
+</tr>
+</tbody>
+</table></div>
+<p>Full messages travel over the mesh (<em>eager push</em>, about D copies per node). Message IDs are gossiped lazily to other peers (<em>IHAVE</em>), and peers that missed a message ask for it (<em>IWANT</em>). Protocol versions have added:</p>
+<ul>
+<li><strong>v1.1:</strong> peer scoring (P1–P7: time in mesh, first deliveries, mesh delivery deficit, invalid messages, IP colocation, behavior penalties), flood publishing, peer exchange on PRUNE, opportunistic grafting, backoff. Together these make the mesh resistant to Sybil and eclipse attacks.</li>
+<li><strong>v1.2:</strong> <strong>IDONTWANT</strong>. On receiving a large message (≥ 1 KiB by default), a node tells its mesh peers not to send it, which cuts duplicate bandwidth for big payloads.</li>
+<li><strong>v1.3:</strong> an extensions control message, providing a negotiation framework for features such as the <strong>Partial Messages</strong> draft (2025), where peers transmit only the parts of a large message (for example blob/erasure-coded chunks) that their peer is missing.</li>
+</ul>
+<h3 id="53-gossipsub-vs-nnets-broadcasts">5.3 GossipSub vs. nnet's broadcasts<a class="headerlink" href="#53-gossipsub-vs-nnets-broadcasts" title="Link to this section">#</a></h3>
+<p>These are three points on the same robustness/efficiency curve:</p>
+<figure><img width="1600" height="840" loading="lazy" decoding="async" alt="Flooding, GossipSub mesh and Chord spanning tree compared" src="images/15-broadcast-strategies.png" /><figcaption>Figure 15. Flooding, GossipSub and the Chord tree on the same 16 peers. Redundancy, and therefore bandwidth, falls from left to right.</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>nnet push</th>
+<th>GossipSub</th>
+<th>nnet tree (K)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transmissions for N nodes</td>
+<td>≈ N·(deg−1), deg ~ tens</td>
+<td>≈ N·D (D=6) + IHAVE metadata</td>
+<td>≈ K·N (with dedup on)</td>
+</tr>
+<tr>
+<td>Path redundancy</td>
+<td>Maximal</td>
+<td>D paths + lazy repair</td>
+<td>K paths</td>
+</tr>
+<tr>
+<td>Depth / latency</td>
+<td>Shortest path in a degree-~log N graph</td>
+<td>≈ log_D N mesh hops</td>
+<td>≤ log₂N hops (avg ≈ ½log₂N)</td>
+</tr>
+<tr>
+<td>Recovery from interior failure</td>
+<td>Automatic</td>
+<td>Automatic (IWANT, mesh repair)</td>
+<td>None, the sub-tree is lost (unless K&gt;1)</td>
+</tr>
+<tr>
+<td>Topic / subscription support</td>
+<td>No (whole network)</td>
+<td>Yes, per-topic meshes</td>
+<td>No (whole network)</td>
+</tr>
+<tr>
+<td>Byzantine resistance</td>
+<td>Implicit (redundancy)</td>
+<td>Explicit (peer scoring)</td>
+<td>Low</td>
+</tr>
+</tbody>
+</table></div>
+<p>At K = 1 (≈1.25 sends per node with dedup on), nnet's tree is <strong>about 5× more bandwidth-efficient than GossipSub's eager push</strong> (≈6 per node) for network-wide broadcast, and far more efficient than flooding. At K = 3 the two cost roughly the same (≈5 vs. ≈6 per node), and GossipSub's self-healing mesh is clearly the better deal. GossipSub gives up some of that bandwidth for <strong>self-healing, per-topic membership and defenses against attackers</strong>, which matter in open, adversarial networks like Ethereum. GossipSub's recent additions (IDONTWANT, partial messages) go after the same redundant-copy waste that nnet's tree eliminates, but they do it without giving up robustness.</p>
+<hr />
+<h2 id="6-performance">6. Performance<a class="headerlink" href="#6-performance" title="Link to this section">#</a></h2>
+<h3 id="61-raw-messaging-throughput">6.1 Raw messaging throughput<a class="headerlink" href="#61-raw-messaging-throughput" title="Link to this section">#</a></h3>
+<p>nnet's local benchmark (<code>examples/message-benchmark</code>, 2 nodes on one machine over TCP + smux) on an Apple M4 Pro:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Message size</th>
+<th>Throughput per node</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 KB</td>
+<td>~66,000 msgs/s (~65 MB/s)</td>
+</tr>
+<tr>
+<td>1 MB</td>
+<td>~3,000–3,200 msgs/s (~3.1 GB/s)</td>
+</tr>
+</tbody>
+</table></div>
+<p>The README reports about 75k msgs/s and about 900 MB/s on a 2018 MacBook Pro. My 1 KB result is in the same range even on a much faster CPU, which suggests that <strong>small-message throughput is limited by nnet's single-goroutine routing pipeline</strong> (<code>numWorkers = 1</code> per router, a single <code>handleMsg</code> per peer, protobuf marshalling) rather than by raw CPU. Large-message throughput, which is dominated by memory copies and syscalls, scales with the hardware.</p>
+<p><strong>libp2p</strong> measures performance with its standardized <code>/perf/1.0.0</code> protocol (<a target="_blank" rel="noopener" href="https://github.com/libp2p/specs/blob/master/perf/perf.md">spec</a>) and publishes continuously updated results comparing each implementation and transport against iperf, raw HTTPS and raw quic-go baselines on the <a target="_blank" rel="noopener" href="https://docs.libp2p.io/status">libp2p performance dashboard</a>. Because the dashboard reports each implementation next to the raw iperf/quic-go numbers on the same host, it shows libp2p's overhead directly. That overhead comes mainly from mandatory encryption (which nnet skips by default) and from muxer framing. Check the dashboard for current figures, since they change with each release.</p>
+<p>These numbers <strong>are not directly comparable</strong>, and that should be stated plainly:</p>
+<ul>
+<li>nnet's benchmark counts <strong>application messages</strong> through the full routing stack, with <strong>no encryption</strong>.</li>
+<li>libp2p's perf benchmark measures <strong>bulk bytes over one encrypted stream</strong>.</li>
+</ul>
+<p>For an honest comparison, nnet with AES-GCM middleware should be measured against a libp2p host sending length-prefixed messages over a stream. My expectation is that libp2p wins on bulk point-to-point transfer (QUIC, kernel offloads, flow control) and that nnet wins on <strong>per-message overhead for small routed messages</strong>, because it has no per-message stream setup and no protocol negotiation.</p>
+<h3 id="62-latency">6.2 Latency<a class="headerlink" href="#62-latency" title="Link to this section">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>nnet</th>
+<th>libp2p</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Message to a known, connected peer</td>
+<td>1 hop</td>
+<td>1 hop on an existing stream</td>
+</tr>
+<tr>
+<td>Message to an arbitrary ID / peer, first time</td>
+<td>~½·log₂N overlay hops, <strong>no setup</strong></td>
+<td>DHT lookup (several RTTs, α-parallel) + dial (1 RTT QUIC, 2–3 RTT TCP+Noise+yamux) + possibly hole punch</td>
+</tr>
+<tr>
+<td>Same peer, subsequent messages</td>
+<td>still ~½·log₂N hops each</td>
+<td>1 hop (connection reused)</td>
+</tr>
+<tr>
+<td>Network-wide broadcast</td>
+<td>tree: ≤ log₂N hops; push: ~graph diameter</td>
+<td>≈ log_D N mesh hops</td>
+</tr>
+</tbody>
+</table></div>
+<p>nnet is well suited to <strong>many small messages to many different keys</strong>, such as DHT-addressed storage, NKN's address-based messaging and consensus votes. libp2p is better for <strong>long-lived, high-volume sessions between specific peers</strong>, where the one-time lookup and dial cost is spread across a whole stream.</p>
+<h3 id="63-who-pays-the-bandwidth">6.3 Who pays the bandwidth?<a class="headerlink" href="#63-who-pays-the-bandwidth" title="Link to this section">#</a></h3>
+<p>nnet's relay model means intermediate nodes carry other nodes' traffic, roughly ½·log₂N times the payload in total across the network. In NKN this is intentional, because relaying is the economic activity that earns rewards. In a general-purpose application it is a tax: every unicast byte costs the network about 7 bytes at 10k nodes. libp2p's direct-dial model keeps the data path off third parties, except when a Circuit Relay is needed, and v2 relays deliberately cap duration and data volume.</p>
+<hr />
+<h2 id="7-scalability">7. Scalability<a class="headerlink" href="#7-scalability" title="Link to this section">#</a></h2>
+<h3 id="71-state-and-maintenance">7.1 State and maintenance<a class="headerlink" href="#71-state-and-maintenance" title="Link to this section">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>nnet (Chord)</th>
+<th>libp2p Kademlia (Amino)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Routing state</td>
+<td>~5–7·log₂N <strong>live connections</strong></td>
+<td>Up to 20 entries/bucket × ~log₂N buckets, <strong>not all connected</strong></td>
+</tr>
+<tr>
+<td>Maintenance</td>
+<td>6 loops, ~2 s base period, each issuing ring lookups</td>
+<td>Bucket refresh every 10 min; liveness learned passively from traffic</td>
+</tr>
+<tr>
+<td>Churn repair</td>
+<td>Successor lists of size ~2·log₂N, refreshed every ~2 s</td>
+<td>Bucket redundancy (k=20) + iterative lookups that skip dead peers</td>
+</tr>
+<tr>
+<td>Lookup cost</td>
+<td>O(log N) recursive hops</td>
+<td>O(log N) iterative steps, α parallel</td>
+</tr>
+</tbody>
+</table></div>
+<p>nnet keeps <strong>every routing entry connected</strong>, and its stabilization loops are aggressive. That gives it fast convergence and accurate RTT measurements, which its PRS routing depends on. The costs are steady background traffic and connection pressure. Kademlia routing tables are mostly lists of known addresses, and libp2p connects to them on demand. This is part of why the Amino DHT handles hundreds of thousands of transient, often-unreachable peers, while a strict Chord ring needs its members to be stable and reachable.</p>
+<h3 id="72-production-evidence">7.2 Production evidence<a class="headerlink" href="#72-production-evidence" title="Link to this section">#</a></h3>
+<ul>
+<li><strong>nnet</strong> runs NKN's mainnet, which has reportedly had <strong>tens of thousands of nodes</strong> at its peak. That validates the ring design at that scale with reachable, incentivized operators.</li>
+<li><strong>libp2p</strong> runs IPFS's public DHT (hundreds of thousands of peers across many network conditions), the Ethereum consensus layer (thousands of validators' beacon nodes on GossipSub, with strict latency budgets for block and attestation propagation), Filecoin, Polkadot/Substrate and others. The variety of environments (browsers, mobile, NATed home nodes, data centers) is much larger.</li>
+</ul>
+<h3 id="73-concurrency-model-and-the-scaling-ceiling">7.3 Concurrency model and the scaling ceiling<a class="headerlink" href="#73-concurrency-model-and-the-scaling-ceiling" title="Link to this section">#</a></h3>
+<p>nnet's choice of a fixed set of goroutines with large buffered channels keeps memory use predictable and avoids per-message goroutine churn. However, <code>numWorkers = 1</code> per router and one <code>handleMsg</code> per peer mean that, <strong>on a single node, routing throughput is mostly single-core-bound per routing type</strong>. The local benchmark shows a node saturating at about 66k msgs/s even on a 14-core machine. For a relay node in NKN this is enough. For a high-fanout service it would need tuning, and the worker counts are constants in the code, not configuration options.</p>
+<p>libp2p handles concurrency <strong>per stream</strong>: each stream has its own goroutine or task in the application handler, so throughput scales with cores. The Resource Manager limits the total so that concurrency does not cause overload.</p>
+<hr />
+<h3 id="74-measured-an-apples-to-apples-scalability-benchmark">7.4 Measured: an apples-to-apples scalability benchmark<a class="headerlink" href="#74-measured-an-apples-to-apples-scalability-benchmark" title="Link to this section">#</a></h3>
+<p>Every number above comes from a different source: nnet's examples, libp2p's dashboard, a simulator, the papers. To compare <strong>how efficiently each stack's throughput holds up as the network grows</strong>, I built one harness (<a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/tree/main/scalability-bench/">scalability-bench/</a>) that drives both stacks with the same workload and measures them the same way.</p>
+<p><strong>What is held equal.</strong> Same Go toolchain, the same process model (one process per stack and network size, each binary linking only one stack), TCP on loopback, a stream multiplexer (smux for nnet, yamux for libp2p, each stack's default), protobuf framing, 1 KB payloads from the same generator, and a <strong>constant total load</strong> at every N: 10,000 deliveries/s for broadcast and 5,000 messages/s for unicast. Because nnet has no encryption or message signing, the main libp2p series runs with <code>NoSecurity</code> and GossipSub <code>StrictNoSign</code>. A second series with Noise and signing shows what libp2p's secure defaults cost. GossipSub's outbound and validation queues were raised to 1,024 entries so they are comparable to nnet's buffers and don't cause artificial drops; every other GossipSub parameter is the default. The <a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/scalability-bench/README.md">README</a> lists every setting.</p>
+<p><strong>What is measured.</strong> The question is not raw throughput, which on one laptop depends mostly on how many processes share the CPU. It is <strong>cost per useful delivery</strong>, and how that cost changes as N grows:</p>
+<ul>
+<li><strong>Amplification</strong>: every application-layer byte written by every node (data, control and maintenance) divided by the payload bytes actually delivered. 1.0 is ideal.</li>
+<li><strong>CPU per delivery</strong>: process CPU time divided by deliveries.</li>
+<li><strong>Delivery ratio and latency</strong>, plus <strong>connections and heap per node</strong>.</li>
+<li><strong>Scaling elasticity</strong>: the slope of log(cost) against log(N). 0 means cost per delivery doesn't depend on network size. 1 means it grows in proportion to N.</li>
+</ul>
+<h4 id="broadcast-both-designs-scale-and-the-tree-is-leaner">Broadcast: both designs scale, and the tree is leaner<a class="headerlink" href="#broadcast-both-designs-scale-and-the-tree-is-leaner" title="Link to this section">#</a></h4>
+<figure><img width="1600" height="1060" loading="lazy" decoding="async" alt="Measured broadcast cost versus network size for nnet tree, push and GossipSub" src="images/16-bench-broadcast-scaling.png" /><figcaption>Figure 16. Broadcast measured from 16 to 256 nodes, single run per point.</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>N = 256</th>
+<th>Delivered</th>
+<th>Wire bytes / payload byte</th>
+<th>CPU µs / delivery</th>
+<th>p50 / p99 latency</th>
+<th>Connections / node</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>nnet tree, K = 1 (dedup on)</td>
+<td>100.0%¹</td>
+<td><strong>1.40</strong></td>
+<td><strong>184</strong></td>
+<td>1.5 / 5.0 ms</td>
+<td>42</td>
+</tr>
+<tr>
+<td>nnet tree, K = 3 (dedup on)</td>
+<td>100.0%</td>
+<td>5.55</td>
+<td>546</td>
+<td>4.1 / 41 ms</td>
+<td>57</td>
+</tr>
+<tr>
+<td>GossipSub (no security, no signing)</td>
+<td>100.0%</td>
+<td>6.93</td>
+<td>568</td>
+<td>1.9 / 9.3 ms</td>
+<td>18</td>
+</tr>
+<tr>
+<td>GossipSub + Noise + signing</td>
+<td>100.0%</td>
+<td>7.34</td>
+<td>489</td>
+<td>2.3 / 19 ms</td>
+<td>18</td>
+</tr>
+<tr>
+<td>nnet push (flooding)</td>
+<td>80.0%</td>
+<td>16.8</td>
+<td>1,677</td>
+<td>772 / 3,315 ms</td>
+<td>24</td>
+</tr>
+</tbody>
+</table></div>
+<p>¹ K = 1 delivered 98.4–99.6% at 16–128 nodes. Individual nodes missed 2–11% of messages, even in this static network (see below).</p>
+<p>Across the whole range, <strong>cost per delivery is essentially flat for every broadcast design</strong>: wire-byte elasticity is −0.03 for GossipSub and +0.03 for the K = 1 tree, and CPU elasticity is +0.01 and +0.09. Neither design gets more expensive per delivery as the network grows, so each node's broadcast capacity is set by its own hardware rather than by N. What differs is the constant:</p>
+<ul>
+<li><strong>nnet's K = 1 tree is about 5× leaner on the wire</strong> (1.3–1.4 versus 6.9–8.3 bytes per payload byte) and <strong>about 3.5× cheaper in CPU</strong> (130–185 versus 530–640 µs) than GossipSub. On this machine that means one core absorbs roughly 5,400 one-KB broadcasts per second with the tree, versus roughly 1,800 with GossipSub.</li>
+<li><strong>That advantage depends on K = 1, which loses messages.</strong> In a network with no joins or leaves, K = 1 still dropped 0.4–1.6% of deliveries at most sizes, and some individual nodes missed 2–11%. The likely cause is nnet's <code>stopInboundFingers</code> loop, which deliberately closes inbound finger connections every ~20 s and briefly leaves holes in a tree that has no redundancy.</li>
+<li><strong>K = 3 fixes delivery and gives most of the advantage back.</strong> It delivered 100% at every size, but costs 3.5–5.6 bytes per payload byte (rising slowly, elasticity +0.17) and 410–550 µs per delivery, about the same CPU as GossipSub. Its p99 latency also grew fastest of the reliable options (41 ms at 256 nodes against 9 ms for GossipSub), because a tree with K = 3 sends three copies along every finger, so a few high-fan-out nodes do a lot of the work.</li>
+<li><strong>Flooding doesn't survive this load at all.</strong> At 15–23 bytes and about 1.6 ms of CPU per delivery, 10,000 deliveries/s needs more than the 14 cores available. From 32 nodes up, latency rose to seconds and delivery fell to 64–80%. Its flat elasticity is therefore a floor, not a sign of scalability.</li>
+<li><strong>libp2p's security is almost free here.</strong> Noise plus signing added at most about 15% in bytes, and its CPU per delivery was even slightly lower at larger N. That is run-to-run noise (about ±15% on single runs), but it means encryption is not where GossipSub's cost comes from; its eager-push redundancy is.</li>
+</ul>
+<h4 id="unicast-relaying-wins-once-the-network-outgrows-all-to-all-connections">Unicast: relaying wins once the network outgrows all-to-all connections<a class="headerlink" href="#unicast-relaying-wins-once-the-network-outgrows-all-to-all-connections" title="Link to this section">#</a></h4>
+<figure><img width="1600" height="1060" loading="lazy" decoding="async" alt="Measured unicast cost versus network size for nnet relay and libp2p direct streams" src="images/17-bench-unicast-scaling.png" /><figcaption>Figure 17. Random node to random node. nnet relays over the ring; libp2p looks the peer up with Kademlia and opens a direct stream, which it keeps.</figcaption></figure>
+<p>Unicast is where the two philosophies from §1 actually collide:</p>
+<ul>
+<li><strong>nnet relay</strong> costs about ½·log₂N hops per message. Wire amplification rose from 1.9 to 3.8 bytes per payload byte and CPU from 110 to 431 µs per delivery between 16 and 256 nodes (elasticities +0.26 and +0.48, i.e. roughly logarithmic). Connections per node grew only from 15 to 56, and p99 latency stayed at 2 ms or below.</li>
+<li><strong>libp2p direct streams</strong> cost one hop, so <strong>up to 128 nodes they are 2–3× cheaper</strong> (1.0 bytes per payload byte, 56–128 µs). But with uniformly random destinations every node eventually connects to every other node, so connections grew to N − 1 (elasticity +1.0).</li>
+<li><strong>At 256 nodes, the cold run collapsed.</strong> There are 65,280 sender/receiver pairs, and in a 20-second window almost every message is a pair's first contact, which needs a DHT lookup and a new connection. Only 28% of messages were delivered within the drain window, CPU cost was about 2.6 ms per delivery and p99 latency was 5.5 s.</li>
+<li><strong>Warmed up for 90 s first, libp2p direct recovered</strong> to 99.9% delivered at 1.02 bytes per payload byte, <strong>but CPU per delivery still rose 4.6× from 128 to 256 nodes</strong> (73 → 334 µs), against 1.6× for nnet relay (270 → 441 µs). p99 latency was still 1.3 s, because about 20 connections per node were still being established. Some of that CPU growth is the cost of 30,000 TCP connections inside one process, but that is exactly the cost an O(N) connection pattern creates.</li>
+<li><strong>With the same connection budget as nnet</strong> (a libp2p connection manager capped at nnet's measured count for each N), libp2p direct was cheaper at 64 nodes (122 versus 191 µs) but <strong>more expensive from 128 nodes</strong> (432 versus 264 µs, and 1,477 versus 431 µs at 256 nodes with only 90% delivered), because every trimmed connection must be re-dialed.</li>
+</ul>
+<p>So the crossover depends on <strong>how concentrated the traffic is</strong>, not on the stacks themselves. libp2p's direct streams win when each node talks to a stable set of peers, which is how most libp2p applications behave (block exchange with a few dozen peers, RPC to known services). nnet's relay wins when destinations are diffuse and the network is larger than the number of connections a node can keep open, which is exactly NKN's workload: messages addressed to arbitrary keys across a large network.</p>
+<h4 id="idle-overhead-nnet-pays-continuously-libp2p-pays-on-demand">Idle overhead: nnet pays continuously, libp2p pays on demand<a class="headerlink" href="#idle-overhead-nnet-pays-continuously-libp2p-pays-on-demand" title="Link to this section">#</a></h4>
+<figure><img width="1600" height="1060" loading="lazy" decoding="async" alt="Measured idle maintenance overhead for nnet and libp2p" src="images/18-bench-idle-overhead.png" /><figcaption>Figure 18. No application traffic.</figcaption></figure>
+<p>With no traffic, nnet nodes kept writing <strong>0.7–1.5 KB/s each</strong>, growing about logarithmically with N, because every node pings each of its O(log N) neighbors every ~5 s and runs Chord stabilization lookups. They also used 3–9 ms of CPU per second each. libp2p wrote <strong>no stream-level bytes at all</strong> during the idle window (only yamux keep-alives, which aren't counted), and used 0.2–2.8 ms of CPU per node per second. Its connection count grew faster than nnet's (15 → 147 against 15 → 57) because the Kademlia DHT connects to every peer it learns about. These numbers match the design difference from §7.1: nnet keeps every routing entry connected and measured; libp2p keeps most routing state as addresses and connects when needed.</p>
+<h4 id="summary-elasticity">Summary: elasticity<a class="headerlink" href="#summary-elasticity" title="Link to this section">#</a></h4>
+<figure><img width="1600" height="860" loading="lazy" decoding="async" alt="Scaling elasticity of cost per delivery for every configuration" src="images/19-bench-scaling-elasticity.png" /><figcaption>Figure 19. How each cost grows with N. Broadcast is flat for both stacks; unicast is logarithmic for nnet relay and linear or worse for libp2p direct streams with random destinations.</figcaption></figure>
+<p><strong>Caveats.</strong> All runs used one 14-core machine and loopback (no WAN latency or bandwidth limits), N ≤ 256, a static network with no churn, and one run per point (expect about ±15% run-to-run variation). Treat the results as relative comparisons and trends, not production capacity. With real WAN round trips, the per-hop latency of nnet's relay and the setup latency of libp2p's dials would both become much larger, in roughly the same proportions as here. The harness, raw results (<a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/scalability-bench/results.jsonl">results.jsonl</a>) and summary table (<a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/scalability-bench/summary.md">summary.md</a>) are all in the repository so the experiment can be rerun on real distributed hardware.</p>
+<hr />
+<h2 id="8-security-posture">8. Security posture<a class="headerlink" href="#8-security-posture" title="Link to this section">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>nnet</th>
+<th>libp2p</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Peer authentication</td>
+<td>None. The ID is self-declared in <code>ExchangeNode</code></td>
+<td>Mandatory, PeerID bound to a key during the handshake</td>
+</tr>
+<tr>
+<td>Transport encryption</td>
+<td>None by default (middleware example uses a fixed-key AES-GCM)</td>
+<td>Mandatory (Noise / TLS 1.3 / QUIC)</td>
+</tr>
+<tr>
+<td>Sybil / ID choice</td>
+<td>Application must derive IDs from keys (NKN does)</td>
+<td>PeerIDs are cheap, so Sybil resistance falls to app/scoring</td>
+</tr>
+<tr>
+<td>Eclipse resistance</td>
+<td>Deterministic neighbors + routing only over self-dialed links</td>
+<td>Kademlia bucket diversity, GossipSub scoring, IP colocation penalties</td>
+</tr>
+<tr>
+<td>DoS</td>
+<td>Bounded buffers that drop; no per-peer resource limits</td>
+<td>Resource Manager scopes, connection gater, rate limits</td>
+</tr>
+<tr>
+<td>Private networks</td>
+<td>Via middleware</td>
+<td>Built-in PSK (<code>pnet</code>)</td>
+</tr>
+</tbody>
+</table></div>
+<p>nnet's defaults assume a <strong>trusted or application-secured environment</strong>. Anyone using it outside NKN should treat "add authentication and encryption middleware" as step one, and should derive per-session keys with an authenticated key exchange instead of the example's fixed key.</p>
+<hr />
+<h2 id="9-developer-experience">9. Developer experience<a class="headerlink" href="#9-developer-experience" title="Link to this section">#</a></h2>
+<p><strong>nnet</strong> gets you running quickly:</p>
+<div class="hl"><pre><span></span><code><span class="nx">nn</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">nnet</span><span class="p">.</span><span class="nx">NewNNet</span><span class="p">(</span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span><span class="p">)</span>
+<span class="nx">nn</span><span class="p">.</span><span class="nx">MustApplyMiddleware</span><span class="p">(</span><span class="nx">node</span><span class="p">.</span><span class="nx">BytesReceived</span><span class="p">{</span><span class="nx">Func</span><span class="p">:</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">msg</span><span class="p">,</span><span class="w"> </span><span class="nx">msgID</span><span class="p">,</span><span class="w"> </span><span class="nx">srcID</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">rn</span><span class="w"> </span><span class="o">*</span><span class="nx">node</span><span class="p">.</span><span class="nx">RemoteNode</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">nn</span><span class="p">.</span><span class="nx">SendBytesRelayReply</span><span class="p">(</span><span class="nx">msgID</span><span class="p">,</span><span class="w"> </span><span class="p">[]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&quot;pong&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">srcID</span><span class="p">)</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">msg</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span>
+<span class="p">}})</span>
+<span class="nx">nn</span><span class="p">.</span><span class="nx">Start</span><span class="p">(</span><span class="kc">false</span><span class="p">)</span>
+<span class="nx">nn</span><span class="p">.</span><span class="nx">Join</span><span class="p">(</span><span class="s">&quot;tcp://seed.example:30001&quot;</span><span class="p">)</span>
+<span class="nx">reply</span><span class="p">,</span><span class="w"> </span><span class="nx">from</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">nn</span><span class="p">.</span><span class="nx">SendBytesRelaySync</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&quot;ping&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">someKey</span><span class="p">)</span><span class="w">   </span><span class="c1">// any key, any node, no dial</span>
+</code></pre></div>
+
+<p><strong>libp2p</strong> asks for more setup and gives more control in return:</p>
+<div class="hl"><pre><span></span><code><span class="nx">h</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">libp2p</span><span class="p">.</span><span class="nx">New</span><span class="p">()</span><span class="w">                                  </span><span class="c1">// TCP+QUIC+WebTransport+WebRTC, TLS+Noise, yamux</span>
+<span class="nx">h</span><span class="p">.</span><span class="nx">SetStreamHandler</span><span class="p">(</span><span class="s">&quot;/myapp/ping/1&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="nx">network</span><span class="p">.</span><span class="nx">Stream</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* read/write */</span><span class="w"> </span><span class="p">})</span>
+<span class="nx">kad</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">dht</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="p">,</span><span class="w"> </span><span class="nx">dht</span><span class="p">.</span><span class="nx">Mode</span><span class="p">(</span><span class="nx">dht</span><span class="p">.</span><span class="nx">ModeAuto</span><span class="p">))</span>
+<span class="nx">kad</span><span class="p">.</span><span class="nx">Bootstrap</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+<span class="nx">info</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kad</span><span class="p">.</span><span class="nx">FindPeer</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">targetPeerID</span><span class="p">)</span><span class="w">            </span><span class="c1">// directory lookup</span>
+<span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">h</span><span class="p">.</span><span class="nx">NewStream</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">info</span><span class="p">.</span><span class="nx">ID</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/myapp/ping/1&quot;</span><span class="p">)</span><span class="w">    </span><span class="c1">// direct, encrypted stream</span>
+</code></pre></div>
+
+<p>nnet's API is <strong>message-oriented and topology-aware</strong>: you think in keys and broadcasts. libp2p's is <strong>stream-oriented and topology-agnostic</strong>: you think in peers and protocols. libp2p's ecosystem is far larger (implementations in a dozen languages, interop testing, browser support, active spec work).</p>
+<hr />
+<h2 id="10-which-one-should-you-use">10. Which one should you use?<a class="headerlink" href="#10-which-one-should-you-use" title="Link to this section">#</a></h2>
+<p><strong>Choose nnet (or its design) when:</strong></p>
+<ul>
+<li>your application is naturally <strong>key-addressed</strong> (a DHT store, a name-addressed messaging network, sharded consensus) and you want the network to <em>deliver to a key</em>, not just look one up;</li>
+<li>nodes are <strong>publicly reachable, long-lived and roughly homogeneous</strong>, such as servers or incentivized operators;</li>
+<li>you need <strong>efficient network-wide broadcast</strong> of high-volume, loss-tolerant data, where the spanning tree's roughly 1× cost is a large win (remember to enable tree dedup);</li>
+<li>you value <strong>deterministic, verifiable topology</strong>, for example to reward or audit relaying;</li>
+<li>you work in Go and want a small codebase you can read in an afternoon and adapt.</li>
+</ul>
+<p><strong>Choose libp2p when:</strong></p>
+<ul>
+<li>peers are <strong>heterogeneous</strong>: browsers, mobile devices, NATed home machines, multiple languages;</li>
+<li>you need <strong>security by default</strong> (authenticated identity, encryption, DoS limits);</li>
+<li>your traffic is <strong>session-oriented</strong> (file transfer, streaming, RPC to known peers);</li>
+<li>you need <strong>topic-based pubsub</strong> that holds up under adversarial conditions (GossipSub with scoring);</li>
+<li>you want a <strong>long-term-maintained</strong> stack with a spec process and multiple independent implementations.</li>
+</ul>
+<p><strong>Or combine them.</strong> The two are not strictly exclusive. nnet's most interesting ideas, <em>recursive key-based relay with proximity route selection</em> and <em>finger-table spanning-tree broadcast</em>, could be implemented as a libp2p protocol (<code>/chord-relay/1.0.0</code>) running over libp2p streams. That would inherit libp2p's identity, encryption, NAT traversal and resource management. NKN's design is essentially a strong overlay paired with a minimal transport, while libp2p is a strong transport that leaves the overlay to the application.</p>
+<hr />
+<h2 id="appendix-a-reproducing-the-measurements">Appendix A: Reproducing the measurements<a class="headerlink" href="#appendix-a-reproducing-the-measurements" title="Link to this section">#</a></h2>
+<p>Environment: Apple M4 Pro (14 cores), macOS, Go toolchain from Homebrew, nnet at commit <code>69b4966</code>, all nodes on localhost over TCP.</p>
+<div class="hl"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/nknorg/nnet<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>nnet<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>mod<span class="w"> </span>tidy
+go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>eb<span class="w"> </span>./examples/efficient-broadcast
+go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>mb<span class="w"> </span>./examples/message-benchmark
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>./eb<span class="w"> </span>-n<span class="w"> </span><span class="m">60</span><span class="w"> </span>-k<span class="w"> </span><span class="m">3</span>
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>./mb<span class="w"> </span>-n<span class="w"> </span><span class="m">2</span>
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>./mb<span class="w"> </span>-n<span class="w"> </span><span class="m">2</span><span class="w"> </span>-m<span class="w"> </span><span class="m">1048576</span>
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>./mb<span class="w"> </span>-n<span class="w"> </span><span class="m">16</span><span class="w"> </span>-b<span class="w"> </span>push
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>./mb<span class="w"> </span>-n<span class="w"> </span><span class="m">16</span><span class="w"> </span>-b<span class="w"> </span>tree
+</code></pre></div>
+
+<p>For the "tree dedup on" rows, add <code>LocalRxMsgCacheRoutingType: []pbmsg.RoutingType{pbmsg.RoutingType_BROADCAST_PUSH, pbmsg.RoutingType_BROADCAST_TREE}</code> to the <code>nnet.Config</code> in <code>examples/efficient-broadcast/main.go</code>.</p>
+<p>Caveats: these are single-machine runs, so all nodes share one CPU and the loopback interface, and each configuration was run once. Treat them as relative comparisons, not absolute capacity numbers. Broadcast counts vary slightly between runs because node IDs are random.</p>
+<h3 id="scalability-benchmark">Scalability benchmark<a class="headerlink" href="#scalability-benchmark" title="Link to this section">#</a></h3>
+<p>The harness in <a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/tree/main/scalability-bench/">scalability-bench/</a> reproduces §7.4. Methodology and fairness settings are in its README.</p>
+<div class="hl"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>scalability-bench<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>-tags<span class="w"> </span>nnet<span class="w"> </span>-o<span class="w"> </span>bench-nnet<span class="w"> </span>.<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>-tags<span class="w"> </span>libp2p<span class="w"> </span>-o<span class="w"> </span>bench-libp2p<span class="w"> </span>.
+</code></pre></div>
+
+<div class="hl"><pre><span></span><code>python3<span class="w"> </span>run.py<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>./warm.sh<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>analyze.py
+</code></pre></div>
+
+<p>The full sweep takes about 90 minutes on a 14-core machine.</p>
+<h3 id="figures-and-simulation">Figures and simulation<a class="headerlink" href="#figures-and-simulation" title="Link to this section">#</a></h3>
+<p>All figures in <code>images/</code> are generated by <a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/figure-src/figs.py">figure-src/figs.py</a>. The simulator <a target="_blank" rel="noopener" href="https://github.com/zbruceli/nnet_libp2p/blob/main/figure-src/sim.py">figure-src/sim.py</a> re-implements nnet's finger-table construction, <code>BROADCAST_TREE</code> forwarding rule and greedy relay routing on 64-bit rings. Its raw output is in <code>figure-src/sim.json</code>.</p>
+<div class="hl"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>figure-src<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>sim.py<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>figs.py<span class="w"> </span>../images
+</code></pre></div>
+
+<h2 id="appendix-b-sources">Appendix B: Sources<a class="headerlink" href="#appendix-b-sources" title="Link to this section">#</a></h2>
+<p><strong>nnet / NKN</strong>
+- nnet source and README: <a target="_blank" rel="noopener" href="https://github.com/nknorg/nnet">https://github.com/nknorg/nnet</a>, especially <code>overlay/chord/{chord,neighborlist,relay,broadcasttree}.go</code>, <code>node/remotenode.go</code>, <code>config/config.go</code>
+- NKN DDTN technical design doc: <a target="_blank" rel="noopener" href="https://github.com/nknorg/nkn/wiki/Tech-Design-Doc%3A-Distributed-Data-Transmission-Network-%28DDTN%29">https://github.com/nknorg/nkn/wiki/Tech-Design-Doc%3A-Distributed-Data-Transmission-Network-%28DDTN%29</a>
+- I. Stoica et al., <em>Chord: A Scalable Peer-to-peer Lookup Service for Internet Applications</em>, SIGCOMM 2001
+- S. El-Ansary, L. O. Alima, P. Brand, S. Haridi, <em>Efficient Broadcast in Structured P2P Networks</em>, IPTPS 2003</p>
+<p><strong>libp2p</strong>
+- Specifications: <a target="_blank" rel="noopener" href="https://github.com/libp2p/specs">https://github.com/libp2p/specs</a> (connections, inlined muxer negotiation, kad-dht, pubsub/gossipsub v1.0–v1.3, partial messages, relay/circuit-v2, perf)
+- go-libp2p: <a target="_blank" rel="noopener" href="https://github.com/libp2p/go-libp2p">https://github.com/libp2p/go-libp2p</a> (<code>defaults.go</code>, <code>p2p/host/resource-manager</code>, <code>p2p/protocol/{autonatv2,circuitv2,holepunch}</code>)
+- go-libp2p-kad-dht: <a target="_blank" rel="noopener" href="https://github.com/libp2p/go-libp2p-kad-dht">https://github.com/libp2p/go-libp2p-kad-dht</a> (<code>amino/defaults.go</code>)
+- go-libp2p-pubsub: <a target="_blank" rel="noopener" href="https://github.com/libp2p/go-libp2p-pubsub">https://github.com/libp2p/go-libp2p-pubsub</a> (<code>gossipsub.go</code>)
+- Performance dashboard: <a target="_blank" rel="noopener" href="https://docs.libp2p.io/status">https://docs.libp2p.io/status</a>
+- D. Trautwein et al., <em>Challenging Tribal Knowledge: Large Scale Measurement Campaign on Decentralized NAT Traversal</em>, arXiv:2510.27500 (IMC): <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2510.27500">https://arxiv.org/abs/2510.27500</a>
+- ProbeLab, <em>Can libp2p punch through NATs?</em>: <a target="_blank" rel="noopener" href="https://probelab.io/blog/can-libp2p-punch-through-nats/">https://probelab.io/blog/can-libp2p-punch-through-nats/</a></p>
+  </main>
+</div>
+<footer>
+  Generated from <a href="https://github.com/zbruceli/nnet_libp2p/blob/main/nnet-vs-libp2p-deep-dive.md">nnet-vs-libp2p-deep-dive.md</a>. Figures, simulator and benchmark harness:
+  <a href="https://github.com/zbruceli/nnet_libp2p">github.com/zbruceli/nnet_libp2p</a>.
+</footer>
+<script>
+(() => {
+  // theme toggle (remembered per browser when storage is available)
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("theme"); if (t) root.dataset.theme = t; } catch (e) {}
+  document.getElementById("theme").addEventListener("click", () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+  });
+  // reading progress
+  const bar = document.getElementById("progress");
+  const onScroll = () => {
+    const h = document.documentElement; const max = h.scrollHeight - h.clientHeight;
+    bar.style.transform = `scaleX(${max > 0 ? h.scrollTop / max : 0})`;
+  };
+  addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  // mobile contents drawer
+  const toc = document.getElementById("toc"), btn = document.getElementById("toc-toggle");
+  btn.addEventListener("click", () => { const o = toc.classList.toggle("open"); btn.setAttribute("aria-expanded", o); });
+  toc.addEventListener("click", e => { if (e.target.tagName === "A") { toc.classList.remove("open"); btn.setAttribute("aria-expanded", false); } });
+  // scroll-spy: highlight the current section, expand its subsections
+  const links = [...toc.querySelectorAll("a")];
+  const byId = new Map(links.map(a => [decodeURIComponent(a.hash.slice(1)), a]));
+  const heads = [...document.querySelectorAll("main h2[id], main h3[id]")].filter(h => byId.has(h.id));
+  let current = null;
+  const spy = () => {
+    let best = heads[0];
+    for (const h of heads) { if (h.getBoundingClientRect().top < 120) best = h; else break; }
+    if (!best || best === current) return;
+    current = best;
+    links.forEach(a => a.classList.remove("active"));
+    toc.querySelectorAll("li.open").forEach(li => li.classList.remove("open"));
+    const a = byId.get(best.id); a.classList.add("active");
+    let li = a.closest("li"); while (li) { li.classList.add("open"); li = li.parentElement.closest("li"); }
+    const top = a.closest("ol:not(.sub) > li"); if (top) top.classList.add("open");
+    if (getComputedStyle(toc).position !== "fixed") a.scrollIntoView({ block: "nearest" });
+  };
+  addEventListener("scroll", spy, { passive: true }); spy();
+})();
+</script>
+</body>
+</html>

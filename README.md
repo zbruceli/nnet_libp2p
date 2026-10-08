@@ -89,7 +89,8 @@ The article includes 19 figures and charts.
 
 | Path | Contents |
 |---|---|
-| [nnet-vs-libp2p-deep-dive.md](nnet-vs-libp2p-deep-dive.md) | The article |
+| [nnet-vs-libp2p-deep-dive.md](nnet-vs-libp2p-deep-dive.md) | The article (Markdown) |
+| [index.html](index.html) | The same article as a styled web page (rebuild with `python3 build_html.py`) |
 | [images/](images/) | All figures and charts (PNG) |
 | [figure-src/](figure-src/) | Figure generator, hero image, and a simulator of nnet's broadcast and routing algorithms |
 | [scalability-bench/](scalability-bench/) | Benchmark harness (Go), sweep driver, raw results and analysis ([methodology](scalability-bench/README.md)) |
