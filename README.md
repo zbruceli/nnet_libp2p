@@ -4,7 +4,7 @@
 
 A technical deep dive into [nnet](https://github.com/nknorg/nnet), NKN's Chord-based overlay network, and how it compares to [libp2p](https://libp2p.io). It covers architecture, core algorithms, performance and scalability, and includes a side-by-side benchmark you can rerun.
 
-**📖 [Read the full article →](nnet-vs-libp2p-deep-dive.md)**
+**📖 Read the full article: [as a web page](https://zbruceli.github.io/nnet_libp2p/) (recommended: contents sidebar, dark mode, works on phones) or [on GitHub](nnet-vs-libp2p-deep-dive.md).**
 
 ---
 
@@ -90,7 +90,7 @@ The article includes 19 figures and charts.
 | Path | Contents |
 |---|---|
 | [nnet-vs-libp2p-deep-dive.md](nnet-vs-libp2p-deep-dive.md) | The article (Markdown) |
-| [index.html](index.html) | The same article as a styled web page (rebuild with `python3 build_html.py`) |
+| [index.html](index.html) | The same article as a styled web page, published at [zbruceli.github.io/nnet_libp2p](https://zbruceli.github.io/nnet_libp2p/) (rebuild with `python3 build_html.py`) |
 | [images/](images/) | All figures and charts (PNG) |
 | [figure-src/](figure-src/) | Figure generator, hero image, and a simulator of nnet's broadcast and routing algorithms |
 | [scalability-bench/](scalability-bench/) | Benchmark harness (Go), sweep driver, raw results and analysis ([methodology](scalability-bench/README.md)) |

@@ -19,6 +19,11 @@ md_text = open(SRC, encoding="utf-8").read()
 # ---- pull title, hero and subtitle out of the markdown; the page header renders them
 m = re.match(r"# (.+?)\n\n!\[([^\]]*)\]\(([^)]+)\)\n\n\*(.+?)\*\n", md_text, re.S)
 title, hero_alt, hero_src, subtitle = m.group(1), m.group(2), m.group(3), m.group(4)
+# the page already shows the title as a heading, so the header uses the text-free hero;
+# link previews (og:image) keep the titled version
+page_hero = hero_src.replace("00-hero.png", "00-hero-notext.png")
+if not os.path.exists(os.path.join(HERE, page_hero)):
+    page_hero = hero_src
 body_md = md_text[m.end():]
 
 md = markdown.Markdown(extensions=["tables", "fenced_code", "codehilite", "toc", "sane_lists", "attr_list"],
@@ -248,7 +253,7 @@ footer {{ max-width: 760px; margin: 80px auto 48px; padding: 24px 20px 0; border
   <button id="theme" aria-label="Toggle dark mode">◐<span class="lbl"> Theme</span></button>
   <a class="btn" href="{REPO}" target="_blank" rel="noopener">GitHub<span class="lbl"> ↗</span></a>
 </div>
-<div class="hero" id="top"><img src="{hero_src}" alt="{html.escape(hero_alt)}" width="1600" height="840"></div>
+<div class="hero" id="top"><img src="{page_hero}" alt="{html.escape(hero_alt)}" width="1600" height="840"></div>
 <header class="intro">
   <h1>{html.escape(title)}</h1>
   <p class="dek">{html.escape(subtitle)}</p>
